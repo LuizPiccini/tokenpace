@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
 import sys
 import time
 import urllib.error
@@ -13,7 +12,7 @@ import urllib.request
 from . import __version__
 from .config import ConfigError, demo_config, load
 from .pace import iso
-from .providers import PROVIDERS, ProviderError
+from .providers import _OPENER, PROVIDERS, ProviderError
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -54,6 +53,9 @@ def cmd_push(args: argparse.Namespace) -> int:
     if not token:
         print("push needs the server's token: --token or TOKENPACE_TOKEN", file=sys.stderr)
         return 2
+    if not all(33 <= ord(ch) <= 126 for ch in token):
+        print("the token contains spaces or control characters", file=sys.stderr)
+        return 2
     now = time.time()
     readings = {}
     for s in cfg.subscriptions:
@@ -67,17 +69,20 @@ def cmd_push(args: argparse.Namespace) -> int:
                                 "message": r.get("message"), "observed_at": iso(now)}
         except ProviderError as exc:
             readings[target] = {"error": exc.message}
-    body = json.dumps({"source": args.source or socket.gethostname(), "readings": readings}).encode()
+    body = json.dumps({"source": args.source or "push", "readings": readings}).encode()
     req = urllib.request.Request(args.to.rstrip("/") + "/api/push", data=body, method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            print(resp.read().decode())
+        with _OPENER.open(req, timeout=20) as resp:
+            print(resp.read(4096).decode(errors="replace"))
         return 0
     except urllib.error.HTTPError as exc:
-        print(f"push failed: HTTP {exc.code}: {exc.read(300).decode(errors='replace')}", file=sys.stderr)
+        with exc:
+            print(f"push failed: HTTP {exc.code}: {exc.read(300).decode(errors='replace')}", file=sys.stderr)
     except urllib.error.URLError as exc:
         print(f"push failed: {exc.reason}", file=sys.stderr)
+    except (ValueError, OSError) as exc:
+        print(f"push failed: {type(exc).__name__}", file=sys.stderr)
     return 1
 
 
@@ -102,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--config")
     u.add_argument("--to", required=True, help="server URL, e.g. http://my-server:8787")
     u.add_argument("--token")
-    u.add_argument("--source", help="name shown on the server (default: hostname)")
+    u.add_argument("--source", help="name shown on the server for these readings (default: push)")
     u.set_defaults(fn=cmd_push)
     args = p.parse_args(argv)
     try:

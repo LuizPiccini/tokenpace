@@ -25,8 +25,11 @@ def default_state_dir() -> Path:
 
 
 def find_config(explicit: str | None) -> Path:
-    candidates = [explicit, os.environ.get("TOKENPACE_CONFIG"), "tokenpace.toml",
-                  "~/.config/tokenpace/config.toml"]
+    if explicit:
+        if expand(explicit).is_file():
+            return expand(explicit)
+        raise ConfigError(f"config file not found: {explicit}")
+    candidates = [os.environ.get("TOKENPACE_CONFIG"), "tokenpace.toml", "~/.config/tokenpace/config.toml"]
     for c in candidates:
         if c and expand(c).is_file():
             return expand(c)
@@ -44,6 +47,7 @@ class Config:
     stale_minutes: float = 30
     manual_stale_days: float = 3
     token: str | None = None
+    allowed_hosts: list[str] = field(default_factory=list)
     state_dir: Path = field(default_factory=default_state_dir)
     groups: list[dict[str, Any]] = field(default_factory=list)
     subscriptions: list[dict[str, Any]] = field(default_factory=list)
@@ -71,9 +75,12 @@ def from_dict(raw: dict[str, Any], path: Path | None = None) -> Config:
     cfg.stale_minutes = float(server.get("stale_minutes") or max(cfg.stale_minutes, 3 * cfg.refresh_minutes))
     cfg.manual_stale_days = float(server.get("manual_stale_days") or cfg.manual_stale_days)
     cfg.token = os.environ.get("TOKENPACE_TOKEN") or server.get("token") or None
+    cfg.allowed_hosts = [str(h) for h in (server.get("allowed_hosts") or [])]
     if server.get("state_dir"):
         cfg.state_dir = expand(server["state_dir"])
     cfg.apk = dict(raw.get("android") or {})
+    if cfg.apk.get("apk") and not cfg.apk.get("path"):
+        cfg.apk["path"] = cfg.apk["apk"]   # "apk" is the documented key; "path" also works
 
     groups = raw.get("groups") or [{"id": "personal", "label": "Personal"}]
     seen: set[str] = set()
@@ -112,8 +119,11 @@ def load(path: str | None) -> Config:
 
 
 def demo_config() -> Config:
+    import tempfile
     return from_dict({
-        "server": {"title": "AI subscriptions (demo)", "refresh_minutes": 1},
+        # Demo readings never mix with real state.
+        "server": {"title": "AI subscriptions (demo)", "refresh_minutes": 1,
+                   "state_dir": str(Path(tempfile.gettempdir()) / "tokenpace-demo")},
         "groups": [{"id": "personal", "label": "Personal"}, {"id": "work", "label": "Work"}],
         "subscriptions": [
             {"id": "claude", "name": "Claude", "provider": "demo", "plan": "Max 5x",

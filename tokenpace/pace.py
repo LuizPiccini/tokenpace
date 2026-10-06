@@ -46,6 +46,10 @@ METHOD = (
     "the reset (“Save”). A used-up short window moves the subscription to the end until it frees up. "
     "Free tiers stay at the end as a reserve."
 )
+# Per-model windows (Claude's Opus/Sonnet weeks) limit one model, not the subscription.
+MODEL_KINDS = {"weekly_opus", "weekly_sonnet"}
+EXHAUSTED_LEFT = 1.0   # % left at which a window counts as used up
+
 PERIOD_NAMES = {
     "five_hour": "of the 5 hours", "daily": "of the day", "weekly": "of the week",
     "weekly_opus": "of the week", "weekly_sonnet": "of the week", "monthly": "of the month",
@@ -58,13 +62,19 @@ def iso(ts: float | None) -> str | None:
     return dt.datetime.fromtimestamp(ts, dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+MIN_TS, MAX_TS = 946684800.0, 7258118400.0   # 2000-01-01 .. 2200-01-01: anything else is garbage
+
+
 def parse_time(value: Any) -> float | None:
-    """Epoch seconds from epoch seconds, epoch milliseconds or an ISO 8601 string."""
+    """Epoch seconds from epoch seconds, epoch milliseconds or an ISO 8601 string; None if out of range."""
     if value is None or value == "" or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        v = float(value)
-        return v / 1000.0 if v > 1e12 else v
+        v = num(value)
+        if v is None:
+            return None
+        v = v / 1000.0 if v > 1e12 else v
+        return v if MIN_TS <= v <= MAX_TS else None
     if isinstance(value, str):
         text = value.strip()
         try:
@@ -77,7 +87,10 @@ def parse_time(value: Any) -> float | None:
             return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=dt.timezone.utc)
-        return parsed.timestamp()
+        try:
+            return parse_time(parsed.timestamp())
+        except (OverflowError, OSError, ValueError):
+            return None
     return None
 
 
@@ -86,7 +99,7 @@ def num(value: Any) -> float | None:
         return None
     try:
         v = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if math.isnan(v) or math.isinf(v):
         return None
@@ -110,9 +123,11 @@ def kind_for_seconds(seconds: float | None) -> str | None:
 
 def make_window(kind: str | None, used_percent: float, resets_at: Any, seconds: float | None = None,
                 label: str | None = None) -> dict[str, Any]:
-    used = max(0.0, min(100.0, float(used_percent)))
+    used = max(0.0, min(100.0, num(used_percent) or 0.0))
     default_label, default_seconds = WINDOW_KINDS.get(kind or "", (None, None))
-    seconds = seconds or default_seconds
+    seconds = num(seconds)
+    if not seconds or not 60 <= seconds <= 400 * 86400:
+        seconds = default_seconds
     if not label:
         label = default_label or (f"{round(seconds / 3600)} h" if seconds else "Window")
     return {
@@ -157,12 +172,13 @@ def window_pace(win: dict[str, Any], now: float) -> dict[str, Any] | None:
     reset = parse_time(win.get("resets_at"))
     seconds = num(win.get("window_seconds"))
     used = num(win.get("used_percent"))
-    if reset is None or not seconds or used is None:
+    if reset is None or not seconds or seconds <= 0 or used is None:
         return None
+    used = max(0.0, min(100.0, used))
     renewed = reset <= now
     if renewed:
         # The window renewed after the reading: a fresh window, usage unknown but near zero.
-        periods = math.ceil((now - reset) / seconds) or 1
+        periods = math.floor((now - reset) / seconds) + 1   # next reset strictly in the future
         reset = reset + periods * seconds
         used = 0.0
     elapsed = max(0.0, min(1.0, 1.0 - (reset - now) / seconds)) * 100.0
@@ -199,8 +215,12 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
                 reason = "Reading without a reset time; it cannot be compared with the period."
             left_out.append({"id": sub["id"], "name": sub["name"], "group": sub["group"], "reason": reason})
             continue
-        period = max(paces, key=lambda p: p["window_seconds"])
-        blocking = [p for p in paces if p["remaining_percent"] < 5 and not p["renewed_since_reading"]]
+        general = [p for p in paces if p["kind"] not in MODEL_KINDS] or paces
+        period = max(general, key=lambda p: p["window_seconds"])
+        exhausted = [p for p in paces if p["remaining_percent"] < EXHAUSTED_LEFT and not p["renewed_since_reading"]]
+        blocking = [p for p in exhausted if p["kind"] not in MODEL_KINDS or not any(
+            g["kind"] not in MODEL_KINDS for g in paces)]
+        model_out = [p for p in exhausted if p not in blocking]
         free = bool(sub.get("free"))
         need = period["need"]
         if blocking:
@@ -219,12 +239,15 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
         else:
             reason = (f"Used {period['used_percent']:.0f}% of the quota; {period['elapsed_percent']:.0f}% "
                       f"{period_name} has passed. Using the rest before the reset takes {_x(need)} "
-                      "the steady pace")
+                      "the steady pace (the pace that spends 100% over the whole period)")
             if period["projected_left_percent"] is not None and state != "blocked":
                 reason += f"; at the current pace ~{period['projected_left_percent']}% is left at the reset"
         if blocking:
-            first = min(blocking, key=lambda p: p["resets_at"] or "")
-            reason = f"{first['label'] or 'Short'} window used up. " + reason
+            # Usable again only when every exhausted window has reset.
+            last = max(blocking, key=lambda p: p["resets_at"] or "")
+            reason = f"{last['label'] or 'A'} window used up. " + reason
+        for p in model_out:
+            reason += f". {p['label']} used up until its reset"
         row = {
             "id": sub["id"],
             "name": sub["name"],
@@ -235,7 +258,7 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
             "gap_pp": period["gap_pp"],
             "period": period,
             "short_windows": [p for p in paces if p is not period],
-            "released_at": min((p["resets_at"] for p in blocking), default=None),
+            "released_at": max((p["resets_at"] for p in blocking), default=None),
             "reason": reason,
             "caveat": sub.get("caveat"),
             "use_via": sub.get("use_via"),

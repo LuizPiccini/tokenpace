@@ -53,6 +53,7 @@ public class UsageWidget extends AppWidgetProvider {
     static final int MAX_FIRST_GROUP = 4;   // height-fitted layout (Android < 12)
     static final int MAX_OTHER_GROUP = 2;
     static final long LOGO_MAX_AGE_MS = 24 * 3600 * 1000L;
+    static final int LOGO_PX = 64;
     /** Null: by API level (list on 31+). Tests force either layout. */
     static Boolean forceList = null;
 
@@ -121,7 +122,14 @@ public class UsageWidget extends AppWidgetProvider {
         if (url.isEmpty()) {
             return null;
         }
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        String lower = url.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("https://")) {
+            url = "https://" + url.substring(8);
+        } else if (lower.startsWith("http://")) {
+            url = "http://" + url.substring(7);
+        } else if (lower.contains("://")) {
+            return null;   // only http and https
+        } else {
             url = "http://" + url;
         }
         while (url.endsWith("/")) {
@@ -129,8 +137,9 @@ public class UsageWidget extends AppWidgetProvider {
         }
         try {
             URL parsed = new URL(url);
-            if (parsed.getHost() == null || parsed.getHost().isEmpty()) {
-                return null;
+            if (parsed.getHost() == null || parsed.getHost().isEmpty() || parsed.getUserInfo() != null
+                    || parsed.getQuery() != null || parsed.getRef() != null) {
+                return null;   // a plain base address: /api/widget is appended to it
             }
         } catch (Exception e) {
             return null;
@@ -271,11 +280,10 @@ public class UsageWidget extends AppWidgetProvider {
             }
             try {
                 byte[] bytes = fetchBytes(base + "/" + logo.replaceFirst("^/", ""), userAgent(context), token(context), 524288);
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                if (bitmap == null) {
+                Bitmap small = decodeLogo(bytes);
+                if (small == null) {
                     continue;
                 }
-                Bitmap small = Bitmap.createScaledBitmap(bitmap, 64, Math.max(1, 64 * bitmap.getHeight() / bitmap.getWidth()), true);
                 try (FileOutputStream out = new FileOutputStream(file)) {
                     small.compress(Bitmap.CompressFormat.PNG, 100, out);
                 }
@@ -283,6 +291,29 @@ public class UsageWidget extends AppWidgetProvider {
                 // no logo: the header shows the label alone
             }
         }
+    }
+
+    /** Decode at most ~4x the target size, then fit inside LOGO_PX x LOGO_PX (any aspect ratio). */
+    static Bitmap decodeLogo(byte[] bytes) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null;
+        }
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = 1;
+        while (Math.max(bounds.outWidth, bounds.outHeight) / (opts.inSampleSize * 2) >= LOGO_PX * 4) {
+            opts.inSampleSize *= 2;
+        }
+        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+        if (bitmap == null) {
+            return null;
+        }
+        float scale = Math.min(1f, (float) LOGO_PX / Math.max(bitmap.getWidth(), bitmap.getHeight()));
+        int w = Math.max(1, Math.round(bitmap.getWidth() * scale));
+        int h = Math.max(1, Math.round(bitmap.getHeight() * scale));
+        return Bitmap.createScaledBitmap(bitmap, w, h, true);
     }
 
     // ------------------------------------------------------------ rendering

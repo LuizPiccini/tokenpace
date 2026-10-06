@@ -1,10 +1,13 @@
 """The HTTP server: the page, the JSON API, manual entries, pushes and the widget feed."""
 from __future__ import annotations
 
+import contextlib
 import hmac
+import ipaddress
 import json
 import mimetypes
 import os
+import socket
 import threading
 import time
 from http import HTTPStatus
@@ -16,11 +19,15 @@ from urllib.parse import urlsplit
 
 from . import __version__
 from .config import Config
+from .locks import file_lock
 from .pace import build_advice, iso, make_window, num, parse_time, relabel, short_duration, sort_windows
 from .providers import PASSIVE, PROVIDERS, ProviderError
 
 MAX_BODY = 64 * 1024
 MAX_LOGO = 512 * 1024
+MAX_CONNECTIONS = 32
+PAGE_CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'")
 
 
 def now_ts() -> float:
@@ -78,11 +85,29 @@ class App:
 
     def _save(self) -> None:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.state_file.with_name(f".state.{os.getpid()}.tmp")
+        tmp = self.state_file.with_name(f".state.{os.getpid()}.{threading.get_ident()}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(self.state, fh, ensure_ascii=False, indent=1)
         os.replace(tmp, self.state_file)
+
+    @contextlib.contextmanager
+    def _locked(self):
+        """Read-modify-write under a lock shared with other tokenpace processes on this state."""
+        with self.lock, file_lock(self.state_file):
+            self.state = self._load()
+            yield
+
+    def apk_file(self) -> Path | None:
+        """The configured widget APK, only if it exists and is a ZIP (APKs are)."""
+        if not self.cfg.apk.get("path"):
+            return None
+        path = self.cfg.resolve(self.cfg.apk["path"])
+        try:
+            with open(path, "rb") as fh:
+                return path if fh.read(4) == b"PK\x03\x04" else None
+        except OSError:
+            return None
 
     def sub(self, sid: str) -> dict[str, Any] | None:
         return next((s for s in self.cfg.subscriptions if s["id"] == sid), None)
@@ -105,7 +130,7 @@ class App:
                 results[s["id"]] = {"status": exc.status, "message": exc.message}
             except Exception as exc:  # noqa: BLE001 - shown on the page by type only
                 results[s["id"]] = {"status": "error", "message": f"Unexpected failure: {type(exc).__name__}."}
-        with self.lock:
+        with self._locked():
             for sid, r in results.items():
                 old = self.state.get(sid) or {}
                 if r["status"] != "ok":
@@ -154,7 +179,7 @@ class App:
                 entry["observed_at"] = iso(min(observed, now))
             updates[s["id"]] = entry
             accepted.append(s["id"])
-        with self.lock:
+        with self._locked():
             for sid, entry in updates.items():
                 old = self.state.get(sid) or {}
                 if "windows" not in entry:
@@ -192,7 +217,7 @@ class App:
                            "unit": clean_text(body.get("unit"), 20) or s.get("unit") or "credits"})
         entry = {"status": "ok", "windows": [window], "observed_at": iso(now_ts()), "manual": True,
                  "plan_label": clean_text(body.get("plan"), 40)}
-        with self.lock:
+        with self._locked():
             self.state[s["id"]] = entry
             self._save()
         return {"ok": True}
@@ -201,7 +226,7 @@ class App:
 
     def view(self) -> dict[str, Any]:
         now = now_ts()
-        with self.lock:
+        with self._locked():
             state = json.loads(json.dumps(self.state))
         subs = []
         for s in self.cfg.subscriptions:
@@ -242,7 +267,7 @@ class App:
             "version": __version__, "title": self.cfg.title, "now": iso(now),
             "last_collect": iso(self.last_collect) if self.last_collect else None,
             "refresh_seconds": int(self.cfg.refresh_minutes * 60), "groups": groups,
-            "apk_url": "android/tokenpace.apk" if self.cfg.apk.get("path") else None,
+            "apk_url": "android/tokenpace.apk" if self.apk_file() else None,
             "subscriptions": subs, "advice": build_advice(subs, self.cfg.group_ids(), now),
         }
 
@@ -250,7 +275,7 @@ class App:
         view = self.view()
         now = now_ts()
         out: dict[str, Any] = {"version": __version__, "title": view["title"], "now": view["now"], "groups": []}
-        if self.cfg.apk.get("version_code"):
+        if self.cfg.apk.get("version_code") and self.apk_file():
             out["apk"] = {"version_code": int(self.cfg.apk["version_code"]),
                           "version": str(self.cfg.apk.get("version") or ""), "url": "android/tokenpace.apk"}
         for g in view["groups"]:
@@ -272,6 +297,7 @@ class App:
 class Handler(BaseHTTPRequestHandler):
     app: App
     server_version = f"tokenpace/{__version__}"
+    timeout = 20   # seconds per socket read: a stalled client cannot hold a thread forever
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
         if os.environ.get("TOKENPACE_LOG_REQUESTS"):
@@ -303,13 +329,45 @@ class Handler(BaseHTTPRequestHandler):
         given = given[7:] if given.startswith("Bearer ") else ""
         return hmac.compare_digest(given.encode(), token.encode())
 
+    def host_allowed(self) -> bool:
+        """Without a token, refuse Host names that could come from DNS rebinding: a web page on
+        evil.example that rebinds its name to this machine. IP literals, localhost, this
+        machine's own name and [server] allowed_hosts are fine; with a token any Host is."""
+        cfg = self.app.cfg
+        if cfg.token or "*" in cfg.allowed_hosts:
+            return True
+        raw = (self.headers.get("Host") or "").strip().lower()
+        host = raw[1:raw.index("]")] if raw.startswith("[") and "]" in raw else raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
+        if not host:
+            return False
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            pass
+        names = {"localhost", socket.gethostname().lower(), socket.getfqdn().lower(), cfg.host.lower()}
+        names.update(h.lower() for h in cfg.allowed_hosts)
+        return host in names or host.endswith(".localhost")
+
     def read_json(self) -> Any:
         if not (self.headers.get("Content-Type") or "").startswith("application/json"):
             raise ValueError("Content-Type must be application/json")
-        length = int(self.headers.get("Content-Length") or 0)
+        if self.headers.get("Transfer-Encoding"):
+            raise ValueError("Transfer-Encoding is not supported; send Content-Length")
+        raw = (self.headers.get("Content-Length") or "0").strip()
+        if not raw.isdigit():
+            raise ValueError("invalid Content-Length")
+        length = int(raw)
         if length > MAX_BODY:
             raise ValueError("body too large")
         return json.loads(self.rfile.read(length) or b"{}")
+
+    def same_origin(self) -> bool:
+        """Browsers send Origin on cross-site POSTs; refuse any that is not this server."""
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True   # curl, tokenpace push, the Android widget
+        return urlsplit(origin).netloc.lower() == (self.headers.get("Host") or "").strip().lower()
 
     # ------------------------------------------------------------ routes
 
@@ -317,19 +375,28 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self) -> None:
-        path = urlsplit(self.path).path
+        try:
+            self.route_get(urlsplit(self.path).path)
+        except Exception as exc:  # noqa: BLE001 - never leak details to the client
+            print(f"tokenpace: GET failed: {type(exc).__name__}", flush=True)
+            self.send_json(500, {"error": "internal error"})
+
+    def route_get(self, path: str) -> None:
+        if not self.host_allowed():
+            self.send_json(421, {"error": "unknown Host; add it to [server] allowed_hosts or set a token"})
+            return
         if path in ("/", "/index.html"):
             page = resources.files("tokenpace").joinpath("web/index.html").read_bytes()
-            self.send_body(200, page, "text/html; charset=utf-8",
-                           {"Content-Security-Policy": "default-src 'self'; img-src 'self' data:; "
-                                                       "style-src 'self' 'unsafe-inline'; "
-                                                       "script-src 'self' 'unsafe-inline'"})
+            self.send_body(200, page, "text/html; charset=utf-8", {"Content-Security-Policy": PAGE_CSP})
+        elif path == "/app.js":
+            script = resources.files("tokenpace").joinpath("web/app.js").read_bytes()
+            self.send_body(200, script, "text/javascript; charset=utf-8")
         elif path == "/healthz":
             self.send_json(200, {"ok": True, "version": __version__})
         elif path.startswith("/logo/"):
             self.send_logo(path[len("/logo/"):])
-        elif path == "/android/tokenpace.apk" and self.app.cfg.apk.get("path"):
-            self.send_file(self.app.cfg.resolve(self.app.cfg.apk["path"]), "application/vnd.android.package-archive")
+        elif path == "/android/tokenpace.apk" and self.app.apk_file():
+            self.send_file(self.app.apk_file(), "application/vnd.android.package-archive")
         elif path in ("/api/usage", "/api/widget"):
             if not self.authorized():
                 self.send_json(401, {"error": "token required"})
@@ -339,25 +406,36 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        path = urlsplit(self.path).path
+        try:
+            self.route_post(urlsplit(self.path).path)
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+            self.send_json(400, {"error": str(exc)[:300]})
+        except Exception as exc:  # noqa: BLE001 - never leak details to the client
+            print(f"tokenpace: POST failed: {type(exc).__name__}", flush=True)
+            self.send_json(500, {"error": "internal error"})
+
+    def route_post(self, path: str) -> None:
+        if not self.host_allowed():
+            self.send_json(421, {"error": "unknown Host; add it to [server] allowed_hosts or set a token"})
+            return
+        if not self.same_origin():
+            self.send_json(403, {"error": "cross-origin request refused"})
+            return
         if not self.authorized():
             self.send_json(401, {"error": "token required"})
             return
-        try:
-            if path == "/api/refresh":
-                self.read_json()
-                self.send_json(202, {"queued": self.app.request_refresh()})
-            elif path == "/api/report":
-                self.send_json(200, self.app.report_manual(self.read_json()))
-            elif path == "/api/push":
-                if not self.app.cfg.token:
-                    self.send_json(403, {"error": "set [server] token (or TOKENPACE_TOKEN) to accept pushes"})
-                    return
-                self.send_json(200, self.app.ingest_push(self.read_json()))
-            else:
-                self.send_json(404, {"error": "not found"})
-        except (ValueError, json.JSONDecodeError) as exc:
-            self.send_json(400, {"error": str(exc)[:300]})
+        if path == "/api/refresh":
+            self.read_json()
+            self.send_json(202, {"queued": self.app.request_refresh()})
+        elif path == "/api/report":
+            self.send_json(200, self.app.report_manual(self.read_json()))
+        elif path == "/api/push":
+            if not self.app.cfg.token:
+                self.send_json(403, {"error": "set [server] token (or TOKENPACE_TOKEN) to accept pushes"})
+                return
+            self.send_json(200, self.app.ingest_push(self.read_json()))
+        else:
+            self.send_json(404, {"error": "not found"})
 
     def send_logo(self, gid: str) -> None:
         g = next((g for g in self.app.cfg.groups if g["id"] == gid and g.get("logo")), None)
@@ -386,10 +464,35 @@ class Handler(BaseHTTPRequestHandler):
         self.send_body(200, data, ctype, extra)
 
 
+class BoundedServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a cap on concurrent connections; extra ones are closed at once."""
+    daemon_threads = True
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 def serve(cfg: Config, collect: bool = True) -> None:
     app = App(cfg)
     handler = type("BoundHandler", (Handler,), {"app": app})
-    httpd = ThreadingHTTPServer((cfg.host, cfg.port), handler)
+    httpd = BoundedServer((cfg.host, cfg.port), handler)
     if collect:
         threading.Thread(target=app.run_refresher, daemon=True, name="refresher").start()
     shown = "localhost" if cfg.host in ("127.0.0.1", "::1") else cfg.host

@@ -17,6 +17,7 @@ Providers:
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -31,12 +32,23 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .locks import file_lock
 from .pace import kind_for_seconds, make_window, num, sort_windows
 
 HTTP_TIMEOUT = 15
 USER_AGENT = "tokenpace"
 PLAN_NAMES = {"prolite": "Pro Lite", "pro": "Pro", "plus": "Plus", "team": "Team", "business": "Business",
               "enterprise": "Enterprise", "free": "Free", "go": "Go"}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects: urllib would resend the Authorization header to the new host."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect())
 
 
 class ProviderError(Exception):
@@ -63,12 +75,16 @@ def http_json(url: str, headers: dict[str, str], data: bytes | None = None) -> t
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **headers},
                                  data=data, method="POST" if data is not None else "GET")
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        with _OPENER.open(req, timeout=HTTP_TIMEOUT) as resp:
             status, body = resp.status, resp.read(262144)
     except urllib.error.HTTPError as exc:
-        status, body = exc.code, exc.read(65536)
+        with exc:
+            status, body = exc.code, exc.read(65536)
     except (urllib.error.URLError, socket.timeout, TimeoutError) as exc:
         raise ProviderError("error", f"No connection ({type(exc).__name__}).") from None
+    except ValueError:
+        # e.g. a credential with a newline in it: never echo the value
+        raise ProviderError("error", "The stored credential has an invalid format.") from None
     try:
         return status, json.loads(body.decode("utf-8"))
     except ValueError:
@@ -103,7 +119,7 @@ def codex(cfg: dict[str, Any], now: float) -> dict[str, Any]:
     tokens = ((read_json_file(path) or {}).get("tokens")) or {}
     token = tokens.get("access_token")
     if not token:
-        raise ProviderError("unavailable", f"No ChatGPT login in {path} (sign in with the Codex CLI).")
+        raise ProviderError("unavailable", "No ChatGPT login found (sign in with the Codex CLI, or set auth_file).")
     exp = jwt_exp(token)
     if exp is not None and exp < now + 60:
         raise ProviderError("unavailable", "The Codex login expired; the next Codex run renews it.")
@@ -188,10 +204,12 @@ def _claude_refresh(path: Path, data: dict[str, Any]) -> dict[str, Any]:
     oauth["expiresAt"] = int((time.time() + (num(body.get("expires_in")) or 3600)) * 1000)
     data = {**data, "claudeAiOauth": oauth}
     # The old refresh token is dead now: persist before anything else.
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(data, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
     os.replace(tmp, path)
     return data
 
@@ -202,14 +220,17 @@ def claude_code(cfg: dict[str, Any], now: float) -> dict[str, Any]:
     with the one Claude Code uses, because refresh tokens rotate and a race logs one side out."""
     default = Path(os.environ.get("CLAUDE_CONFIG_DIR", "~/.claude")) / ".credentials.json"
     path = expand(cfg.get("credentials_file") or default)
-    with _claude_lock:
+    # With refresh on, a lock shared across processes: the second one rereads the renewed file
+    # instead of sending the same (now dead) refresh token.
+    with _claude_lock, (file_lock(path) if cfg.get("refresh") else contextlib.nullcontext()):
         data = read_json_file(path)
         source = str(path)
         if not data and not cfg.get("credentials_file"):
             data, source = _claude_keychain(), "the macOS Keychain"
         oauth = (data or {}).get("claudeAiOauth") or {}
         if not oauth.get("accessToken"):
-            raise ProviderError("unavailable", f"No Claude Code login in {path} (sign in with Claude Code).")
+            raise ProviderError("unavailable", "No Claude Code login found (sign in with Claude Code, or set "
+                                               "credentials_file).")
         expires = (num(oauth.get("expiresAt")) or 0) / 1000.0
         if expires < now + 600 and cfg.get("refresh") and source == str(path) and oauth.get("refreshToken"):
             data = _claude_refresh(path, data)

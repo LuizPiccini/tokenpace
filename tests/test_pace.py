@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from tokenpace.pace import build_advice, iso, make_window, window_pace
+from tokenpace.pace import build_advice, iso, make_window, parse_time, window_pace
 
 
 def sub(sid, used, elapsed_frac, seconds=7 * 86400, kind="weekly", group="personal", **extra):
@@ -45,7 +45,7 @@ class PaceTest(unittest.TestCase):
             sub("work", 5, 0.5, group="work"),
         ]
         blocked = sub("blocked", 10, 0.5)
-        blocked["windows"].append(make_window("five_hour", 99, iso(now + 3600)))
+        blocked["windows"].append(make_window("five_hour", 100, iso(now + 3600)))
         subs.append(blocked)
         adv = build_advice(subs, ["personal", "work"], now)
         rows = adv["groups"]["personal"]
@@ -54,6 +54,36 @@ class PaceTest(unittest.TestCase):
                          ["Use first", "Use too", "On pace", "Save", "Free reserve", "Used up now"])
         self.assertEqual(adv["groups"]["work"][0]["verdict"], "Use first")   # each group ranks on its own
         self.assertIsNotNone(rows[-1]["released_at"])
+
+    def test_rollover_at_exact_period_boundary(self):
+        now = time.time()
+        w = make_window("weekly", 50, iso(now - 7 * 86400))   # reset exactly one period ago
+        p = window_pace(w, now)
+        self.assertGreater(parse_time(p["resets_at"]), now)
+        self.assertLess(p["need"], 99)
+
+    def test_release_waits_for_every_exhausted_window(self):
+        now = time.time()
+        s = sub("c", 100, 0.5)                                    # week used up
+        s["windows"].append(make_window("five_hour", 100, iso(now + 3600)))
+        row = build_advice([s], ["personal"], now)["groups"]["personal"][0]
+        self.assertEqual(row["level"], "blocked")
+        self.assertEqual(row["released_at"], s["windows"][0]["resets_at"])   # the week, not the 5 hours
+
+    def test_model_window_does_not_block_subscription(self):
+        now = time.time()
+        s = sub("claude", 20, 0.5)
+        s["windows"].append(make_window("weekly_opus", 100, iso(now + 3 * 86400)))
+        row = build_advice([s], ["personal"], now)["groups"]["personal"][0]
+        self.assertEqual(row["level"], "use")
+        self.assertIn("Opus used up", row["reason"])
+
+    def test_garbage_numbers(self):
+        self.assertIsNone(parse_time(1e309))
+        self.assertIsNone(parse_time(10 ** 400))
+        self.assertIsNone(parse_time("9999-01-01T00:00:00Z"))
+        w = make_window("weekly", 10 ** 400, None, seconds=-3600)
+        self.assertEqual((w["used_percent"], w["window_seconds"]), (0, 7 * 86400))
 
 
 if __name__ == "__main__":

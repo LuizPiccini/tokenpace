@@ -15,8 +15,9 @@ with the share of time left:
 
 > **needed pace** = % of quota left ÷ % of the period left
 
-At 1× you are on track to use exactly what you pay for. At 3× you would have to use it
-three times faster than so far, or lose the rest at the reset. So:
+The steady pace is the rate that would spend 100% of the quota evenly over the whole
+period. At 1× what is left matches the time left. At 3× you would have to spend at
+three times that steady rate from now on, or lose the rest at the reset. So:
 
 | Verdict | Meaning |
 |---|---|
@@ -105,6 +106,11 @@ the machine's tailnet address, or keep localhost and run
 the page asks for it once (or open it as `http://host:8787/#token=…`). Do not expose
 it to the public internet without a token and TLS.
 
+Without a token, tokenpace only answers requests addressed to an IP address,
+`localhost` or the machine's own name, which stops other web pages from reaching it
+through DNS rebinding. If you open it by another DNS name (a Tailscale MagicDNS name,
+say), list it in `[server] allowed_hosts` or set a token.
+
 ## Several machines
 
 Subscriptions that live on another computer (a work laptop with its own Claude login,
@@ -116,7 +122,8 @@ tokenpace push --config laptop.toml --to http://my-server:8787 --token "$TOKENPA
 ```
 
 Run it from cron or launchd every 10 minutes. Pushes always need the server's token.
-Only numbers, reset times and plan names travel; logins stay on each machine.
+Only numbers, reset times, plan names and the optional `--source` label travel;
+logins stay on each machine.
 
 ## Android widget
 
@@ -126,7 +133,7 @@ tapping a row opens the page.
 
 ```sh
 cd android
-./gradlew assembleDebug        # build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug        # build/outputs/apk/debug/tokenpace-widget-debug.apk
 ./gradlew testDebugUnitTest    # Robolectric tests
 ```
 

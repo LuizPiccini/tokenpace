@@ -269,6 +269,11 @@ public class UsageWidgetTest {
         assertEquals("https://usage.example.com", UsageWidget.normalizeUrl("https://usage.example.com//"));
         assertNull(UsageWidget.normalizeUrl(""));
         assertNull(UsageWidget.normalizeUrl("http://"));
+        assertEquals("https://Usage.Example.com", UsageWidget.normalizeUrl("HTTPS://Usage.Example.com/"));
+        assertNull(UsageWidget.normalizeUrl("ftp://usage.example.com"));
+        assertNull(UsageWidget.normalizeUrl("http://host:8787/#token=x"));
+        assertNull(UsageWidget.normalizeUrl("http://user:pw@host:8787"));
+        assertEquals("http://host/tokenpace", UsageWidget.normalizeUrl("host/tokenpace/"));
     }
 
     @Test

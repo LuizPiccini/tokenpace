@@ -1,4 +1,5 @@
 import json
+import http.client
 import tempfile
 import threading
 import time
@@ -32,6 +33,9 @@ class AppTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
 
     def test_config_errors(self):
+        cfg = from_dict({"android": {"apk": "w.apk", "version_code": 3},
+                         "subscriptions": [{"id": "x", "provider": "demo"}]})
+        self.assertEqual(cfg.apk["path"], "w.apk")
         with self.assertRaises(ConfigError):
             from_dict({"subscriptions": [{"id": "x", "provider": "nope"}]})
         with self.assertRaises(ConfigError):
@@ -51,6 +55,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(s["windows"][0]["label"], "Month")
         self.assertTrue(s["caveat"].startswith("Entered by hand"))
         app.state["console"]["observed_at"] = iso(time.time() - 4 * 86400)
+        app._save()   # the view rereads state from disk
         s = next(x for x in app.view()["subscriptions"] if x["id"] == "console")
         self.assertEqual(s["status"], "stale")
 
@@ -125,6 +130,85 @@ class HttpTest(unittest.TestCase):
         code, body = self.call("/logo/personal", token=None)
         self.assertEqual((code, body[:4]), (200, b"\x89PNG"))
         self.assertEqual(self.call("/logo/work", token=None)[0], 404)
+
+    def raw(self, headers, body=b"{}"):
+        conn = http.client.HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
+        conn.putrequest("POST", "/api/refresh", skip_accept_encoding=True)
+        for k, v in {"Content-Type": "application/json", "Authorization": "Bearer s3cret", **headers}.items():
+            conn.putheader(k, v)
+        conn.endheaders(body)
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        return resp.status
+
+    def test_request_hardening(self):
+        self.assertEqual(self.raw({"Content-Length": "-1"}), 400)
+        self.assertEqual(self.raw({"Content-Length": "2", "Transfer-Encoding": "chunked"}), 400)
+        port = self.httpd.server_address[1]
+        self.assertEqual(self.raw({"Content-Length": "2", "Origin": "http://evil.example"}), 403)
+        self.assertEqual(self.raw({"Content-Length": "2", "Origin": f"http://127.0.0.1:{port}"}), 202)
+
+    def test_page_policy_and_script(self):
+        req = urllib.request.Request(self.base + "/")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            csp = r.headers["Content-Security-Policy"]
+            page = r.read().decode()
+        self.assertIn("script-src 'self';", csp)
+        self.assertIn("frame-ancestors 'none'", csp)
+        self.assertNotIn("<script>", page)
+        self.assertEqual(self.call("/app.js", token=None)[0], 200)
+
+
+class ApkTest(unittest.TestCase):
+    def test_only_real_apks_are_offered(self):
+        tmp = tempfile.mkdtemp()
+        Path(tmp, "w.apk").write_text('{"not": "an apk"}')
+        raw = {"server": {"state_dir": tmp}, "android": {"apk": "w.apk", "version_code": 2},
+               "subscriptions": [{"id": "d", "provider": "demo"}]}
+        app = App(from_dict(raw, Path(tmp) / "tokenpace.toml"))
+        self.assertIsNone(app.apk_file())
+        self.assertNotIn("apk", app.widget_view())
+        Path(tmp, "w.apk").write_bytes(b"PK\x03\x04rest")
+        self.assertIsNotNone(app.apk_file())
+        self.assertEqual(app.widget_view()["apk"]["version_code"], 2)
+
+    def test_explicit_config_must_exist(self):
+        from tokenpace.config import load
+        with self.assertRaises(ConfigError):
+            load(str(Path(tempfile.mkdtemp()) / "missing.toml"))
+
+
+class HostCheckTest(unittest.TestCase):
+    """Without a token, DNS-rebinding Host names are refused."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        app = App(from_dict({"server": {"state_dir": self.tmp, "allowed_hosts": ["usage.tailnet.example"]},
+                             "subscriptions": [{"id": "d", "provider": "demo"}]}))
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), type("H", (Handler,), {"app": app}))
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.port = self.httpd.server_address[1]
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+    def status(self, host):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/usage", headers={"Host": host})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            with e:
+                return e.code
+
+    def test_hosts(self):
+        self.assertEqual(self.status(f"127.0.0.1:{self.port}"), 200)
+        self.assertEqual(self.status(f"localhost:{self.port}"), 200)
+        self.assertEqual(self.status("100.64.1.2:8787"), 200)
+        self.assertEqual(self.status("usage.tailnet.example:8787"), 200)
+        self.assertEqual(self.status("evil.example:8787"), 421)
 
 
 if __name__ == "__main__":

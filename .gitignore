@@ -5,6 +5,14 @@ build/
 dist/
 .venv/
 tokenpace.toml
+*.local.toml
+laptop.toml
+.env
+.env.*
+credentials.json
+.credentials.json
+state.json
+.review/
 *.key
 android/.gradle/
 android/build/

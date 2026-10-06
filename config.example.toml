@@ -6,6 +6,7 @@ host = "127.0.0.1"          # use your tailnet/LAN address to reach it from a ph
 port = 8787
 refresh_minutes = 10
 # token = "long-random-string"   # or TOKENPACE_TOKEN; required for pushes, recommended off localhost
+# allowed_hosts = ["my-server.tailnet-name.ts.net"]   # DNS names you open it by, when there is no token
 # state_dir = "~/.local/state/tokenpace"
 
 # Groups are ranked separately and shown in this order. Logos are optional:

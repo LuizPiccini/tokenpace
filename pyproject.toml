@@ -27,4 +27,4 @@ Homepage = "https://github.com/LuizPiccini/tokenpace"
 packages = ["tokenpace"]
 
 [tool.setuptools.package-data]
-tokenpace = ["web/*.html"]
+tokenpace = ["web/*.html", "web/*.js"]
