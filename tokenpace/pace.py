@@ -48,7 +48,7 @@ METHOD = (
 )
 # Per-model windows (Claude's Opus/Sonnet weeks) limit one model, not the subscription.
 MODEL_KINDS = {"weekly_opus", "weekly_sonnet"}
-EXHAUSTED_LEFT = 1.0   # % left at which a window counts as used up
+EXHAUSTED_LEFT = 0.5   # under this % left a window counts as used up (99% used is not)
 
 PERIOD_NAMES = {
     "five_hour": "of the 5 hours", "daily": "of the day", "weekly": "of the week",
@@ -164,8 +164,11 @@ def short_duration(seconds: float) -> str:
     return f"{minutes} min" if minutes else "under 1 min"
 
 
+NEED_CAP = 99.0
+
+
 def _x(value: float) -> str:
-    return f"{value:.1f}×"
+    return "over 99×" if value >= NEED_CAP else f"{value:.1f}×"
 
 
 def window_pace(win: dict[str, Any], now: float) -> dict[str, Any] | None:
@@ -186,7 +189,7 @@ def window_pace(win: dict[str, Any], now: float) -> dict[str, Any] | None:
     if elapsed >= 10.0:
         projected_left = max(0.0, 100.0 - used / (elapsed / 100.0))
     remaining = 100.0 - used
-    need = min(99.0, remaining / max(1.0, 100.0 - elapsed))
+    need = min(NEED_CAP, remaining / max(1e-9, 100.0 - elapsed))   # capped for display
     return {
         "label": win.get("label"),
         "kind": win.get("kind"),
@@ -218,8 +221,7 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
         general = [p for p in paces if p["kind"] not in MODEL_KINDS] or paces
         period = max(general, key=lambda p: p["window_seconds"])
         exhausted = [p for p in paces if p["remaining_percent"] < EXHAUSTED_LEFT and not p["renewed_since_reading"]]
-        blocking = [p for p in exhausted if p["kind"] not in MODEL_KINDS or not any(
-            g["kind"] not in MODEL_KINDS for g in paces)]
+        blocking = [p for p in exhausted if p["kind"] not in MODEL_KINDS]   # a model limit never blocks the plan
         model_out = [p for p in exhausted if p not in blocking]
         free = bool(sub.get("free"))
         need = period["need"]
@@ -260,7 +262,8 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
             "short_windows": [p for p in paces if p is not period],
             "released_at": max((p["resets_at"] for p in blocking), default=None),
             "reason": reason,
-            "caveat": sub.get("caveat"),
+            "caveat": sub.get("caveat") or ("Reset since the last reading; usage assumed near zero until the next one"
+                                            if period["renewed_since_reading"] else None),
             "use_via": sub.get("use_via"),
             "free": free,
         }

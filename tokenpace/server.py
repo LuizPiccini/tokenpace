@@ -5,11 +5,13 @@ import contextlib
 import hmac
 import ipaddress
 import json
+import math
 import mimetypes
 import os
 import socket
 import threading
 import time
+import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -26,6 +28,7 @@ from .providers import PASSIVE, PROVIDERS, ProviderError
 MAX_BODY = 64 * 1024
 MAX_LOGO = 512 * 1024
 MAX_CONNECTIONS = 32
+REQUEST_DEADLINE = 15.0   # seconds for a whole request; a dripping client is cut off
 PAGE_CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'")
 
@@ -99,14 +102,14 @@ class App:
             yield
 
     def apk_file(self) -> Path | None:
-        """The configured widget APK, only if it exists and is a ZIP (APKs are)."""
+        """The configured widget APK, only if it is a ZIP with an AndroidManifest.xml (as APKs are)."""
         if not self.cfg.apk.get("path"):
             return None
         path = self.cfg.resolve(self.cfg.apk["path"])
         try:
-            with open(path, "rb") as fh:
-                return path if fh.read(4) == b"PK\x03\x04" else None
-        except OSError:
+            with zipfile.ZipFile(path) as apk:
+                return path if "AndroidManifest.xml" in apk.namelist() else None
+        except (OSError, zipfile.BadZipFile):
             return None
 
     def sub(self, sid: str) -> dict[str, Any] | None:
@@ -202,9 +205,13 @@ class App:
             raise ValueError("period_days must be between 1 and 366")
         used_amount, limit_amount = num(body.get("used_amount")), num(body.get("limit_amount"))
         if used_amount is not None or limit_amount is not None:
-            if used_amount is None or not limit_amount or limit_amount <= 0 or used_amount < 0:
-                raise ValueError("used and total must be numbers, with a total above zero")
+            if (used_amount is None or not limit_amount or limit_amount <= 0 or used_amount < 0
+                    or max(used_amount, limit_amount) > 1e15):
+                raise ValueError("used and total must be numbers from 0 to 10^15, with a total above zero")
             used = used_amount / limit_amount * 100.0
+            if not math.isfinite(used) or used > 1000:
+                raise ValueError("used is far above the total; check the numbers")
+            used = min(used, 100.0)
         else:
             used = num(body.get("used_percent"))
             if used is None or not 0 <= used <= 100:
@@ -297,7 +304,24 @@ class App:
 class Handler(BaseHTTPRequestHandler):
     app: App
     server_version = f"tokenpace/{__version__}"
-    timeout = 20   # seconds per socket read: a stalled client cannot hold a thread forever
+    timeout = 10   # seconds per socket read
+
+    def setup(self) -> None:
+        super().setup()
+        # The per-read timeout restarts with every byte, so a client dripping one byte at a time
+        # could hold a slot forever; this watchdog ends any request that takes too long overall.
+        self._watchdog = threading.Timer(REQUEST_DEADLINE, self._cut_off)
+        self._watchdog.daemon = True
+        self._watchdog.start()
+
+    def _cut_off(self) -> None:
+        with contextlib.suppress(OSError):
+            self.connection.shutdown(socket.SHUT_RDWR)
+
+    def finish(self) -> None:
+        self._watchdog.cancel()
+        with contextlib.suppress(OSError):
+            super().finish()
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quieter than the default
         if os.environ.get("TOKENPACE_LOG_REQUESTS"):

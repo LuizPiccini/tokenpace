@@ -599,6 +599,9 @@ public class UsageWidget extends AppWidgetProvider {
     }
 
     static String times(double need) {
+        if (need >= 99) {
+            return "99×+";   // the server caps the needed pace at 99
+        }
         return String.format(Locale.ROOT, "%.1f", need) + "×";
     }
 

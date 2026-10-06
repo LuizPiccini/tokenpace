@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from tokenpace import providers
+from tokenpace import server as server_mod
 from tokenpace.config import ConfigError, from_dict
 from tokenpace.pace import iso
 from tokenpace.server import App, Handler
@@ -49,6 +50,9 @@ class AppTest(unittest.TestCase):
             app.report_manual({"id": "demo", "used_percent": 10, "resets_at": iso(time.time() + 86400)})
         app.report_manual({"id": "console", "used_amount": 25, "limit_amount": 100, "unit": "credits",
                            "resets_at": iso(time.time() + 10 * 86400)})
+        for bad in ({"used_amount": 1e300, "limit_amount": 1e300}, {"used_amount": 1e14, "limit_amount": 1e-300}):
+            with self.assertRaises(ValueError):
+                app.report_manual({"id": "console", "resets_at": iso(time.time() + 86400), **bad})
         s = next(x for x in app.view()["subscriptions"] if x["id"] == "console")
         self.assertEqual(s["status"], "ok")
         self.assertEqual(s["windows"][0]["used_percent"], 25)
@@ -159,6 +163,28 @@ class HttpTest(unittest.TestCase):
         self.assertNotIn("<script>", page)
         self.assertEqual(self.call("/app.js", token=None)[0], 200)
 
+    def test_dripping_client_is_cut_off(self):
+        import socket
+        with mock.patch.object(server_mod, "REQUEST_DEADLINE", 1.0):
+            s = socket.create_connection(("127.0.0.1", self.httpd.server_address[1]), timeout=5)
+            start = time.time()
+            s.sendall(b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Slow: ")
+            closed = False
+            while time.time() - start < 4:
+                try:
+                    s.sendall(b"a")
+                    if s.recv(1, socket.MSG_PEEK) == b"":
+                        closed = True
+                        break
+                except socket.timeout:
+                    continue
+                except OSError:
+                    closed = True
+                    break
+            s.close()
+        self.assertTrue(closed)
+        self.assertLess(time.time() - start, 4)
+
 
 class ApkTest(unittest.TestCase):
     def test_only_real_apks_are_offered(self):
@@ -169,7 +195,11 @@ class ApkTest(unittest.TestCase):
         app = App(from_dict(raw, Path(tmp) / "tokenpace.toml"))
         self.assertIsNone(app.apk_file())
         self.assertNotIn("apk", app.widget_view())
-        Path(tmp, "w.apk").write_bytes(b"PK\x03\x04rest")
+        Path(tmp, "w.apk").write_bytes(b"PK\x03\x04rest")            # ZIP magic alone is not enough
+        self.assertIsNone(app.apk_file())
+        import zipfile
+        with zipfile.ZipFile(Path(tmp, "w.apk"), "w") as z:
+            z.writestr("AndroidManifest.xml", b"binary-xml")
         self.assertIsNotNone(app.apk_file())
         self.assertEqual(app.widget_view()["apk"]["version_code"], 2)
 

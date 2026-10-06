@@ -11,6 +11,11 @@ laptop.toml
 .env.*
 credentials.json
 .credentials.json
+auth.json
+secrets.toml
+*.pem
+id_rsa*
+id_ed25519*
 state.json
 .review/
 *.key

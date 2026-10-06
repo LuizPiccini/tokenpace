@@ -26,6 +26,9 @@ class PaceTest(unittest.TestCase):
         p = window_pace(w, now)
         self.assertTrue(p["renewed_since_reading"])
         self.assertEqual(p["used_percent"], 0)
+        s = {"id": "x", "name": "x", "group": "personal", "status": "ok", "windows": [w]}
+        row = build_advice([s], ["personal"], now)["groups"]["personal"][0]
+        self.assertIn("Reset since the last reading", row["caveat"])
 
     def test_window_without_reset_is_left_out(self):
         s = {"id": "x", "name": "X", "group": "personal", "status": "ok",
@@ -78,7 +81,26 @@ class PaceTest(unittest.TestCase):
         self.assertEqual(row["level"], "use")
         self.assertIn("Opus used up", row["reason"])
 
-    def test_garbage_numbers(self):
+    def test_nearly_used_up_is_not_blocked(self):
+        now = time.time()
+        s = sub("c", 20, 0.5)
+        s["windows"].append(make_window("five_hour", 99.1, iso(now + 3600)))
+        self.assertNotEqual(build_advice([s], ["personal"], now)["groups"]["personal"][0]["level"], "blocked")
+
+    def test_model_only_readings_do_not_block(self):
+        now = time.time()
+        s = {"id": "c", "name": "c", "group": "personal", "status": "ok",
+             "windows": [make_window("weekly_opus", 100, iso(now + 86400))]}
+        self.assertNotEqual(build_advice([s], ["personal"], now)["groups"]["personal"][0]["level"], "blocked")
+
+    def test_capped_pace_is_labelled(self):
+        now = time.time()
+        s = sub("c", 0, 0.9999)
+        row = build_advice([s], ["personal"], now)["groups"]["personal"][0]
+        self.assertEqual(row["need"], 99.0)
+        self.assertIn("over 99×", row["reason"])
+
+    def test_garbage_numbers_rejected(self):
         self.assertIsNone(parse_time(1e309))
         self.assertIsNone(parse_time(10 ** 400))
         self.assertIsNone(parse_time("9999-01-01T00:00:00Z"))

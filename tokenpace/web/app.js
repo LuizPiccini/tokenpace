@@ -11,7 +11,11 @@
   (function takeTokenFromHash() {
     var m = /(?:^|[#&])token=([^&]+)/.exec(location.hash);
     if (m) {
-      localStorage.setItem(TOKEN_KEY, decodeURIComponent(m[1]));
+      try {
+        localStorage.setItem(TOKEN_KEY, decodeURIComponent(m[1]));
+      } catch (e) {
+        // malformed escape in the link: ignore it, the page will ask for the token
+      }
       history.replaceState(null, "", location.pathname + location.search);
     }
   })();
@@ -62,7 +66,7 @@
   function color(rem) { return rem >= 40 ? "var(--ok)" : rem >= 15 ? "var(--amber)" : "var(--danger)"; }
   function when(iso) { return whenFmt.format(new Date(iso)).replace(",", ""); }
   function fmtNum(v) { return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
-  function fmtX(v) { return (Math.round(v * 10) / 10).toFixed(1) + "×"; }
+  function fmtX(v) { return v >= 99 ? "99×+" : (Math.round(v * 10) / 10).toFixed(1) + "×"; }
 
   function windowState(w) {
     var reset = w.resets_at ? Date.parse(w.resets_at) : null;
