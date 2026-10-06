@@ -1,0 +1,15 @@
+# User unit: cp to ~/.config/systemd/user/, then
+#   systemctl --user daemon-reload && systemctl --user enable --now tokenpace
+#   loginctl enable-linger "$USER"     # keep running after logout
+[Unit]
+Description=tokenpace: which AI subscription to use first
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/tokenpace serve --config %h/.config/tokenpace/config.toml
+Restart=on-failure
+RestartSec=10
+# EnvironmentFile=%h/.config/tokenpace/env    # e.g. OPENROUTER_API_KEY=..., TOKENPACE_TOKEN=...
+
+[Install]
+WantedBy=default.target

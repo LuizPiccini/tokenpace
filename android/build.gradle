@@ -1,0 +1,62 @@
+// tokenpace Android widget. Build: ./gradlew assembleDebug (installable APK in
+// build/outputs/apk/debug/). Signed release: set TOKENPACE_KEYSTORE,
+// TOKENPACE_KEYSTORE_PASSWORD (and optionally TOKENPACE_KEY_ALIAS, TOKENPACE_KEY_PASSWORD),
+// then ./gradlew assembleRelease. Tests: ./gradlew testDebugUnitTest (Robolectric).
+plugins {
+    id 'com.android.application' version '8.5.2'
+}
+
+def keystore = System.getenv('TOKENPACE_KEYSTORE')
+
+android {
+    namespace 'app.tokenpace.widget'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'app.tokenpace.widget'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile file(keystore)
+                storePassword System.getenv('TOKENPACE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('TOKENPACE_KEY_ALIAS') ?: 'tokenpace'
+                keyPassword System.getenv('TOKENPACE_KEY_PASSWORD') ?: System.getenv('TOKENPACE_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            all {
+                it.testLogging {
+                    events 'passed', 'failed', 'skipped'
+                    exceptionFormat 'full'
+                }
+            }
+        }
+    }
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.13'
+}

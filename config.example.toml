@@ -1,0 +1,72 @@
+# tokenpace configuration. Copy to tokenpace.toml (or ~/.config/tokenpace/config.toml).
+
+[server]
+title = "AI subscriptions"
+host = "127.0.0.1"          # use your tailnet/LAN address to reach it from a phone
+port = 8787
+refresh_minutes = 10
+# token = "long-random-string"   # or TOKENPACE_TOKEN; required for pushes, recommended off localhost
+# state_dir = "~/.local/state/tokenpace"
+
+# Groups are ranked separately and shown in this order. Logos are optional:
+# a path relative to this file; PNG/JPEG/WebP also show in the Android widget.
+[[groups]]
+id = "personal"
+label = "Personal"
+# logo = "logos/personal.png"
+
+[[groups]]
+id = "work"
+label = "Work"
+
+# ChatGPT plan limits through the Codex CLI login.
+[[subscriptions]]
+id = "chatgpt"
+name = "ChatGPT"
+group = "personal"
+provider = "codex"
+use_via = "Codex CLI"
+# auth_file = "~/.codex/auth.json"
+
+# Claude plan limits through the Claude Code login (read-only).
+[[subscriptions]]
+id = "claude"
+name = "Claude"
+group = "personal"
+provider = "claude_code"
+use_via = "Claude Code"
+# credentials_file = "~/.config/tokenpace/claude/.credentials.json"   # a login made for tokenpace
+# refresh = true                                                        # only with such a login
+
+# OpenRouter's daily allowance of :free model requests.
+[[subscriptions]]
+id = "openrouter-free"
+name = "OpenRouter free"
+group = "personal"
+provider = "openrouter_free"
+free = true
+api_key_env = "OPENROUTER_API_KEY"
+# api_key_file = "~/.config/tokenpace/openrouter.key"
+
+# A plan whose console has no API: type the numbers on the page ("Update numbers").
+[[subscriptions]]
+id = "mimo"
+name = "Xiaomi MiMo"
+group = "personal"
+provider = "manual"
+plan = "Lite"
+period_days = 30
+unit = "credits"
+
+# Readings sent from another machine with: tokenpace push --to http://this-server:8787
+[[subscriptions]]
+id = "work-claude"
+name = "Claude"
+group = "work"
+provider = "push"
+
+# Offer the widget APK from this server (optional).
+# [android]
+# apk = "tokenpace.apk"
+# version_code = 1
+# version = "0.1.0"

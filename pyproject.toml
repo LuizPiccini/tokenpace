@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokenpace"
+version = "0.1.0"
+description = "Which AI subscription to use first: quota used vs time elapsed, as a page, an API and an Android widget."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Luiz Piccini" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Web Environment",
+]
+
+[project.scripts]
+tokenpace = "tokenpace.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/LuizPiccini/tokenpace"
+
+[tool.setuptools]
+packages = ["tokenpace"]
+
+[tool.setuptools.package-data]
+tokenpace = ["web/*.html"]

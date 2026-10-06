@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+tokenpace.toml
+*.key
+android/.gradle/
+android/build/
+android/local.properties
+*.jks
+*.keystore

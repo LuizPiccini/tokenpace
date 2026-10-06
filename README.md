@@ -1,0 +1,155 @@
+# tokenpace
+
+**Which AI subscription should you use first?** tokenpace reads the usage limits of
+your AI plans (ChatGPT/Codex, Claude, OpenRouter's free tier, anything you type in by
+hand) and ranks them by how much quota you are about to leave on the table before each
+reset. It is a small self-hosted page, a JSON API and an Android home-screen widget.
+
+![The tokenpace page in demo mode](docs/screenshot.png)
+
+## How the ranking works
+
+Every plan has windows that reset: 5 hours, a week, a month, a day. For each
+subscription tokenpace takes its longest window and compares the share of quota left
+with the share of time left:
+
+> **needed pace** = % of quota left ÷ % of the period left
+
+At 1× you are on track to use exactly what you pay for. At 3× you would have to use it
+three times faster than so far, or lose the rest at the reset. So:
+
+| Verdict | Meaning |
+|---|---|
+| **Use first** | the highest needed pace in its group, above 1.15× |
+| **Use too** | other subscriptions above 1.15× |
+| **On pace** | 0.85× to 1.15× |
+| **Save** | below 0.85×: at this rate the quota runs out before the reset |
+| **Used up now** | a short window (say, Claude's 5 hours) is exhausted; it moves to the end until it frees up |
+| **Free reserve** | free tiers, kept at the end for light tasks |
+
+Subscriptions are ranked within groups (for example *Personal* and *Work*), each with
+an optional logo.
+
+## Quick start
+
+Python 3.11 or newer, no other dependencies.
+
+```sh
+git clone https://github.com/LuizPiccini/tokenpace && cd tokenpace
+python -m tokenpace serve --demo          # synthetic data at http://localhost:8787
+```
+
+Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace`.
+
+Then describe your own subscriptions:
+
+```sh
+cp config.example.toml tokenpace.toml     # or ~/.config/tokenpace/config.toml
+python -m tokenpace check                 # validate
+python -m tokenpace collect               # read everything once, print JSON
+python -m tokenpace serve
+```
+
+## Providers
+
+| `provider` | Reads | Notes |
+|---|---|---|
+| `codex` | ChatGPT plan limits (5 hours, week) with the Codex CLI login in `~/.codex/auth.json` | read-only; the login renews whenever you use Codex |
+| `claude_code` | Claude plan limits (5 hours, week, per-model weeks) with the Claude Code login (`~/.claude/.credentials.json` or the macOS Keychain) | read-only by default, see below |
+| `openrouter_free` | OpenRouter's daily allowance of `:free` model requests | needs an API key in an env var or file |
+| `manual` | numbers you type on the page | for consoles without an API |
+| `push` | readings sent by `tokenpace push` from another machine | for a work laptop or a second computer |
+| `demo` | synthetic data | for trying things out |
+
+The ChatGPT and Claude readers call the same undocumented usage endpoints the
+official apps use. They can change without notice; when they do, the row shows an
+error instead of wrong numbers.
+
+**Claude logins expire after about 8 hours** and are renewed only when Claude Code
+runs. If the machine running tokenpace does not use Claude Code every day, give
+tokenpace its own login and let it renew that one:
+
+```sh
+CLAUDE_CONFIG_DIR=~/.config/tokenpace/claude claude auth login
+```
+
+```toml
+[[subscriptions]]
+id = "claude"
+provider = "claude_code"
+credentials_file = "~/.config/tokenpace/claude/.credentials.json"
+refresh = true
+```
+
+Never point `refresh = true` at the login Claude Code itself uses: refresh tokens
+rotate, and two programs renewing the same login will log one of them out. Renewal
+uses Claude Code's OAuth client, so check that this fits Anthropic's terms for your
+account.
+
+## Running it all the time
+
+- Linux: `contrib/systemd/tokenpace.service` (a user unit; `loginctl enable-linger`
+  keeps it running after logout).
+- macOS: `contrib/launchd/app.tokenpace.plist`.
+
+State (the last readings) lives in `~/.local/state/tokenpace` (`%LOCALAPPDATA%\tokenpace`
+on Windows).
+
+## Reaching it from your phone
+
+tokenpace listens on `127.0.0.1` unless you change `[server] host`. The simplest
+safe setup is a private network such as [Tailscale](https://tailscale.com): bind to
+the machine's tailnet address, or keep localhost and run
+`tailscale serve --bg 8787`. If anyone else can reach the port, set a token
+(`[server] token` or `TOKENPACE_TOKEN`); the API and the widget then require it, and
+the page asks for it once (or open it as `http://host:8787/#token=…`). Do not expose
+it to the public internet without a token and TLS.
+
+## Several machines
+
+Subscriptions that live on another computer (a work laptop with its own Claude login,
+say) are declared on the server with `provider = "push"`. The other machine runs the
+same tool with its own config and sends the numbers:
+
+```sh
+tokenpace push --config laptop.toml --to http://my-server:8787 --token "$TOKENPACE_TOKEN"
+```
+
+Run it from cron or launchd every 10 minutes. Pushes always need the server's token.
+Only numbers, reset times and plan names travel; logins stay on each machine.
+
+## Android widget
+
+The widget shows the same ranking on the home screen, with a scrollable list on
+Android 12+ and a height-fitted list on older versions. Tapping the title refreshes;
+tapping a row opens the page.
+
+```sh
+cd android
+./gradlew assembleDebug        # build/outputs/apk/debug/app-debug.apk
+./gradlew testDebugUnitTest    # Robolectric tests
+```
+
+It needs the Android SDK (platform 34) and JDK 17. Install the APK, add the
+**tokenpace** widget, and enter your server address (and token, if set). To offer the
+APK from your own server, set `[android] apk` in the config; the page then links to
+it, and the widget announces newer versions when `version_code` goes up. Group logos
+appear in the widget when they are PNG, JPEG or WebP.
+
+## Development
+
+```sh
+python -m unittest discover -s tests -t .
+```
+
+A provider is a function `(subscription_config, now) -> {"windows": [...], "plan_label": ..., "message": ...}`
+in `tokenpace/providers.py`, registered in `PROVIDERS`. Windows come from
+`make_window(kind, used_percent, resets_at, seconds)`. Raise `ProviderError("unavailable", ...)`
+when there is nothing to read and `ProviderError("error", ...)` when reading failed.
+Providers must never log, print or return credentials.
+
+tokenpace is not affiliated with OpenAI, Anthropic, OpenRouter or any other provider.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

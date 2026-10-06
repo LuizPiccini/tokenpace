@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>tokenpace</title>
+<style>
+  :root {
+    --bg: #0D1B2A; --surface: #142640; --surface-2: #1A2D52; --edge: #1E3158; --edge-strong: #2A3F66;
+    --ink: #E8E8E8; --ink-soft: #A8B8D9; --ink-muted: #64748B; --navy-lighter: #7894C5;
+    --ok: #4FB8A6; --amber: #F5A623; --danger: #DC2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 "Satoshi", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1, h2, .big, .label { font-family: "Space Grotesk", system-ui, sans-serif; font-weight: 500; }
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--ink-soft); font-size: 13px; }
+  button { background: var(--surface-2); color: var(--ink); border: 1px solid var(--edge-strong); border-radius: 8px;
+    padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .tile { background: var(--surface); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 14px; }
+  .tile .k { color: var(--ink-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .tile .v { font-size: 16px; margin-top: 2px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); margin: 22px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; }
+  .card.dim { opacity: .9; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .name { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 18px; }
+  .pill { font-size: 12px; color: var(--ink-soft); border: 1px solid var(--edge-strong); border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+  .status { font-size: 13px; color: var(--ink-soft); margin: 4px 0 10px; }
+  .status.warn { color: var(--amber); }
+  .status.bad { color: #F87171; }
+  .win { padding: 10px 0; border-top: 1px solid var(--edge); }
+  .win:first-of-type { border-top: 0; }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .label { color: var(--ink-soft); font-size: 14px; }
+  .big { font-size: 26px; line-height: 1.1; }
+  .big small { font-size: 12px; color: var(--ink-muted); font-family: "Satoshi", system-ui, sans-serif; margin-left: 4px; }
+  .bar { height: 8px; background: var(--bg); border-radius: 99px; overflow: hidden; margin: 6px 0 6px; border: 1px solid var(--edge); }
+  .fill { height: 100%; border-radius: 99px; }
+  .fill.est { opacity: .45; }
+  .reset { font-size: 14px; }
+  .reset b { font-weight: 600; }
+  .reset .when { color: var(--ink-muted); }
+  .unavail { padding: 14px 0 6px; color: var(--ink-soft); font-size: 14px; }
+  .unavail b { display: block; color: var(--ink); font-family: "Space Grotesk", system-ui, sans-serif; font-weight: 500; font-size: 18px; margin-bottom: 4px; }
+  .src { margin-top: 10px; font-size: 12px; color: var(--ink-muted); }
+  .src ul { margin: 4px 0 0; padding-left: 18px; }
+  .err { color: #F87171; margin: 10px 0; }
+  footer { margin-top: 26px; font-size: 12px; color: var(--ink-muted); }
+  footer a, .src a { color: var(--navy-lighter); }
+  .advice { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .lane { background: var(--surface); border: 1px solid var(--edge); border-radius: 12px; padding: 6px 16px 12px; }
+  .lane h3 { font-family: "Space Grotesk", system-ui, sans-serif; font-weight: 500; font-size: 14px; color: var(--ink-soft); margin: 8px 0 2px; }
+  .rec { padding: 10px 0; border-top: 1px solid var(--edge); }
+  .rec:first-of-type { border-top: 0; }
+  .rec .row { align-items: center; }
+  .rec .who { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 16px; }
+  .rec .who .n { color: var(--ink-muted); margin-right: 6px; }
+  .rec .who small { color: var(--ink-muted); font-family: "Satoshi", system-ui, sans-serif; font-size: 12px; margin-left: 6px; }
+  .verdict { font-size: 12px; border-radius: 999px; padding: 2px 10px; white-space: nowrap; border: 1px solid transparent; }
+  .lv-use { background: rgba(79,184,166,.18); color: var(--ok); border-color: rgba(79,184,166,.45); }
+  .lv-lean_use { background: rgba(79,184,166,.08); color: var(--ok); border-color: rgba(79,184,166,.3); }
+  .lv-on_pace { background: var(--surface-2); color: var(--ink-soft); border-color: var(--edge-strong); }
+  .lv-save { background: rgba(245,166,35,.12); color: var(--amber); border-color: rgba(245,166,35,.4); }
+  .lv-blocked { background: rgba(220,38,38,.14); color: #F87171; border-color: rgba(220,38,38,.45); }
+  .lv-free { background: var(--surface-2); color: var(--navy-lighter); border-color: var(--edge-strong); }
+  .pace { position: relative; height: 10px; background: var(--bg); border: 1px solid var(--edge); border-radius: 99px; margin: 7px 0 5px; overflow: hidden; }
+  .pace .used { position: absolute; left: 0; top: 0; bottom: 0; background: var(--navy-lighter); border-radius: 99px; }
+  .pace .mark { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink); }
+  .rec .why { font-size: 13px; color: var(--ink-soft); }
+  .rec .via { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+  .rec .cav { font-size: 12px; color: var(--amber); margin-top: 2px; }
+  .legend { font-size: 12px; color: var(--ink-muted); margin: 6px 2px 0; }
+  .legend i { display: inline-block; vertical-align: middle; margin: 0 4px 0 10px; }
+  .legend .lu { width: 18px; height: 8px; border-radius: 99px; background: var(--navy-lighter); }
+  .legend .lm { width: 2px; height: 12px; background: var(--ink); }
+  .amount { font-size: 13px; color: var(--ink-soft); }
+  form.report { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--edge); }
+  form.report label { font-size: 12px; color: var(--ink-soft); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  form.report input { background: var(--bg); color: var(--ink); border: 1px solid var(--edge-strong); border-radius: 6px; padding: 6px 8px; font: inherit; width: 100%; min-width: 0; color-scheme: dark; }
+  form.report .full { grid-column: 1 / -1; }
+  form.report .hint { font-size: 12px; color: var(--ink-muted); }
+  .linkish { background: none; border: 0; padding: 0; color: var(--navy-lighter); text-decoration: underline; font-size: 13px; }
+  .logo { width: 16px; height: 16px; border-radius: 4px; vertical-align: -3px; margin-right: 7px; object-fit: contain; }
+  .gate { background: var(--surface); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; margin: 10px 0; }
+  .gate input { background: var(--bg); color: var(--ink); border: 1px solid var(--edge-strong); border-radius: 6px; padding: 6px 8px; font: inherit; width: min(420px, 100%); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 id="title">AI subscriptions</h1>
+      <div class="sub" id="meta">Loading…</div>
+    </div>
+    <button id="refresh" type="button">Refresh now</button>
+  </header>
+  <form class="gate" id="gate" hidden>
+    <p>This server needs its token.</p>
+    <input id="gate-token" type="password" autocomplete="off" placeholder="token">
+    <button type="submit">Open</button>
+  </form>
+  <section class="summary" id="summary"></section>
+  <div id="error" class="err" hidden></div>
+  <h2>Where to use first</h2>
+  <section class="advice" id="advice"></section>
+  <div class="legend"><i class="lu"></i>used <i class="lm"></i>how much of the period has passed · needed pace = quota left ÷ period left (1× is steady)</div>
+  <div id="groups"></div>
+  <footer>
+    <p id="about">Share left and time to reset of each usage window, in your browser's time zone.</p>
+    <p id="advice-method"></p>
+    <p id="android" hidden>Android widget: <a href="android/tokenpace.apk">download the APK</a> on the phone, install it, add the “tokenpace” widget and enter this server's address.</p>
+    <p><a href="https://github.com/LuizPiccini/tokenpace" rel="noreferrer">tokenpace</a> <span id="version"></span></p>
+  </footer>
+</main>
+<script>
+(function () {
+  "use strict";
+  var data = null;
+  var editing = false;
+  var TOKEN_KEY = "tokenpace-token";
+  var whenFmt = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  var timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+  var SOURCES = { codex: "Codex CLI login", claude_code: "Claude Code login", openrouter_free: "OpenRouter API key",
+                  manual: "entered by hand", push: "pushed from another machine", demo: "demo data" };
+
+  (function takeTokenFromHash() {
+    var m = /(?:^|[#&])token=([^&]+)/.exec(location.hash);
+    if (m) {
+      localStorage.setItem(TOKEN_KEY, decodeURIComponent(m[1]));
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  })();
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = opts.headers || {};
+    var t = localStorage.getItem(TOKEN_KEY);
+    if (t) headers.Authorization = "Bearer " + t;
+    opts.headers = headers;
+    opts.cache = "no-store";
+    return fetch(path, opts);
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+  function groupById(id) { return (data.groups || []).filter(function (g) { return g.id === id; })[0] || { id: id, label: id }; }
+  function heading(tag, g) {
+    var h = el(tag);
+    if (g.logo_url) {
+      var img = el("img", "logo");
+      img.src = g.logo_url;
+      img.alt = "";
+      h.appendChild(img);
+    }
+    h.appendChild(document.createTextNode(g.label));
+    return h;
+  }
+  function pct(v) { return (Math.round(v * 10) / 10).toString() + "%"; }
+  function duration(ms) {
+    if (ms <= 0) return "now";
+    var min = Math.floor(ms / 60000);
+    if (min < 1) return "under 1 min";
+    var d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
+    if (d > 0) return d + "d " + h + "h";
+    if (h > 0) return h + "h " + (m < 10 ? "0" : "") + m + "m";
+    return m + " min";
+  }
+  function ago(iso) {
+    if (!iso) return "never";
+    var ms = Date.now() - Date.parse(iso);
+    if (ms < 60000) return "under 1 min ago";
+    return duration(ms) + " ago";
+  }
+  function color(rem) { return rem >= 40 ? "var(--ok)" : rem >= 15 ? "var(--amber)" : "var(--danger)"; }
+  function when(iso) { return whenFmt.format(new Date(iso)).replace(",", ""); }
+  function fmtNum(v) { return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+  function fmtX(v) { return (Math.round(v * 10) / 10).toFixed(1) + "×"; }
+
+  function windowState(w) {
+    var reset = w.resets_at ? Date.parse(w.resets_at) : null;
+    var passed = reset !== null && reset <= Date.now();
+    return { reset: reset, passed: passed, remaining: passed ? 100 : w.remaining_percent, estimated: passed };
+  }
+
+  function statusLine(s) {
+    var p = el("div", "status");
+    if (s.status === "ok") {
+      p.textContent = "Read " + ago(s.observed_at) + (s.message ? " · " + s.message : "");
+    } else if (s.status === "stale") {
+      p.className = "status warn";
+      p.textContent = "Old data: read " + ago(s.observed_at) + (s.message ? ". " + s.message : "");
+    } else {
+      p.className = s.manual || s.provider === "push" ? "status warn" : "status bad";
+      p.textContent = s.message || "Unavailable.";
+    }
+    return p;
+  }
+
+  function renderWindow(w) {
+    var st = windowState(w);
+    var box = el("div", "win");
+    var row = el("div", "row");
+    row.appendChild(el("span", "label", w.label));
+    var big = el("span", "big", (st.estimated ? "≈" : "") + pct(st.remaining));
+    big.appendChild(el("small", null, "left"));
+    row.appendChild(big);
+    box.appendChild(row);
+    var bar = el("div", "bar");
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    bar.setAttribute("aria-valuenow", String(Math.round(st.remaining)));
+    bar.setAttribute("aria-label", w.label + ": " + pct(st.remaining) + " left");
+    var fill = el("div", "fill" + (st.estimated ? " est" : ""));
+    fill.style.width = Math.max(0, Math.min(100, st.remaining)) + "%";
+    fill.style.background = color(st.remaining);
+    bar.appendChild(fill);
+    box.appendChild(bar);
+    if (w.limit_amount) {
+      box.appendChild(el("div", "amount", fmtNum(w.used_amount) + " of " + fmtNum(w.limit_amount) + " " + (w.unit || "") + " used"));
+    }
+    var r = el("div", "reset");
+    if (st.reset === null) {
+      r.textContent = "Reset time unknown";
+    } else if (st.passed) {
+      r.appendChild(el("b", null, "Already renewed"));
+      r.appendChild(el("span", "when", " · " + when(w.resets_at) + " · waiting for a new reading"));
+    } else {
+      r.appendChild(el("b", null, "Resets in " + duration(st.reset - Date.now())));
+      r.appendChild(el("span", "when", " · " + when(w.resets_at)));
+    }
+    box.appendChild(r);
+    return box;
+  }
+
+  function renderCard(s) {
+    var card = el("article", "card" + (s.windows.length ? "" : " dim"));
+    var top = el("div", "top");
+    top.appendChild(el("span", "name", s.name));
+    if (s.plan) top.appendChild(el("span", "pill", s.plan));
+    card.appendChild(top);
+    card.appendChild(statusLine(s));
+    if (!s.windows.length) {
+      var u = el("div", "unavail");
+      u.appendChild(el("b", null, "Unavailable"));
+      u.appendChild(document.createTextNode(s.manual ? "Enter its numbers so it joins the ranking." : "No reading until valid data arrives."));
+      card.appendChild(u);
+    }
+    s.windows.forEach(function (w) { card.appendChild(renderWindow(w)); });
+    var src = SOURCES[s.provider] || s.provider;
+    if (s.provider === "push" && s.source) src = "pushed by " + s.source;
+    card.appendChild(el("div", "src", "Source: " + src + (s.use_via ? " · use via " + s.use_via : "")));
+    if (s.manual) card.appendChild(reportControls(s));
+    return card;
+  }
+
+  function field(form, label, name, type, attrs, full) {
+    var l = el("label", full ? "full" : null, label);
+    var i = document.createElement("input");
+    i.name = name; i.type = type;
+    Object.keys(attrs || {}).forEach(function (k) { i.setAttribute(k, attrs[k]); });
+    l.appendChild(i);
+    form.appendChild(l);
+    return i;
+  }
+
+  function reportControls(s) {
+    var wrap = el("div");
+    var open = el("button", "linkish", "Update numbers");
+    open.type = "button";
+    wrap.appendChild(open);
+    open.addEventListener("click", function () {
+      editing = true;
+      open.hidden = true;
+      var f = el("form", "report");
+      var cur = s.windows[0] || {};
+      f.appendChild(el("div", "hint full", "Copy the numbers from the provider's console: the % used, or the amount used and the total."));
+      var pctIn = field(f, "% used", "used_percent", "number", { min: "0", max: "100", step: "0.1", inputmode: "decimal" });
+      var plan = field(f, "Plan", "plan", "text", { maxlength: "40", placeholder: "e.g. Lite" });
+      var used = field(f, "Used", "used_amount", "number", { min: "0", step: "any", inputmode: "decimal" });
+      var total = field(f, "Total", "limit_amount", "number", { min: "0", step: "any", inputmode: "decimal" });
+      var unit = field(f, "Unit", "unit", "text", { maxlength: "20", placeholder: "credits" });
+      var reset = field(f, "Renews on", "resets_at", "datetime-local", { required: "required" });
+      var days = field(f, "Period (days)", "period_days", "number", { min: "1", max: "366", step: "1", value: String(s.period_days || 30) });
+      if (s.plan) plan.value = s.plan;
+      if (s.unit) unit.value = s.unit;
+      if (cur.resets_at) {
+        var d = new Date(Date.parse(cur.resets_at) - new Date().getTimezoneOffset() * 60000);
+        reset.value = d.toISOString().slice(0, 16);
+      }
+      var msg = el("div", "hint full");
+      var actions = el("div", "full");
+      var save = el("button", null, "Save");
+      save.type = "submit";
+      var cancel = el("button", "linkish", "Cancel");
+      cancel.type = "button";
+      cancel.style.marginLeft = "12px";
+      actions.appendChild(save); actions.appendChild(cancel);
+      f.appendChild(msg); f.appendChild(actions);
+      cancel.addEventListener("click", function () { editing = false; render(); });
+      f.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var body = { id: s.id, plan: plan.value.trim() || null, unit: unit.value.trim() || null,
+                     period_days: days.value ? Number(days.value) : null };
+        if (used.value !== "" || total.value !== "") {
+          body.used_amount = Number(used.value); body.limit_amount = Number(total.value);
+        } else if (pctIn.value !== "") {
+          body.used_percent = Number(pctIn.value);
+        } else { msg.textContent = "Enter the % used or the amounts."; return; }
+        if (reset.value) body.resets_at = new Date(reset.value).toISOString();
+        save.disabled = true;
+        api("api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+          .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); })
+          .then(function () { editing = false; return load(); })
+          .catch(function (e) { msg.textContent = "Not saved: " + e.message; save.disabled = false; });
+      });
+      wrap.appendChild(f);
+    });
+    return wrap;
+  }
+
+  function renderAdvice() {
+    var box = document.getElementById("advice");
+    box.textContent = "";
+    var adv = data.advice || { groups: {} };
+    document.getElementById("advice-method").textContent = adv.method ? "How the order works: " + adv.method : "";
+    (data.groups || []).forEach(function (g) {
+      var rows = (adv.groups || {})[g.id] || [];
+      if (!rows.length) return;
+      var lane = el("div", "lane");
+      lane.appendChild(heading("h3", g));
+      rows.forEach(function (r) {
+        var p = r.period;
+        var rec = el("div", "rec");
+        var top = el("div", "row");
+        var who = el("span", "who");
+        who.appendChild(el("span", "n", r.rank + "."));
+        who.appendChild(document.createTextNode(r.name));
+        who.appendChild(el("small", null, (p.label || "") + (r.free ? " · free" : "")));
+        top.appendChild(who);
+        top.appendChild(el("span", "verdict lv-" + r.level, r.verdict));
+        rec.appendChild(top);
+        var bar = el("div", "pace");
+        bar.setAttribute("role", "img");
+        bar.setAttribute("aria-label", "Used " + pct(p.used_percent) + ", period elapsed " + pct(p.elapsed_percent));
+        var u = el("div", "used"); u.style.width = Math.max(0, Math.min(100, p.used_percent)) + "%";
+        var m = el("div", "mark"); m.style.left = "calc(" + Math.max(0, Math.min(100, p.elapsed_percent)) + "% - 1px)";
+        bar.appendChild(u); bar.appendChild(m);
+        rec.appendChild(bar);
+        var gap = r.free ? "reserve for light tasks" : "needed pace " + fmtX(r.need);
+        var reset = p.resets_at ? " · resets in " + duration(Date.parse(p.resets_at) - Date.now()) : "";
+        var why = r.level === "blocked" && r.released_at
+          ? r.reason + " Frees up in " + duration(Date.parse(r.released_at) - Date.now()) + "."
+          : r.reason + ".";
+        rec.appendChild(el("div", "why", gap + reset));
+        rec.appendChild(el("div", "why", why));
+        if (r.use_via) rec.appendChild(el("div", "via", r.use_via));
+        if (r.caveat) rec.appendChild(el("div", "cav", r.caveat + "."));
+        lane.appendChild(rec);
+      });
+      box.appendChild(lane);
+    });
+    var out = adv.left_out || [];
+    if (out.length) {
+      var lane2 = el("div", "lane");
+      lane2.appendChild(el("h3", null, "Outside the ranking"));
+      out.forEach(function (o) {
+        var rec = el("div", "rec");
+        rec.appendChild(el("div", "who", o.name + " · " + groupById(o.group).label));
+        rec.appendChild(el("div", "why", o.reason));
+        lane2.appendChild(rec);
+      });
+      box.appendChild(lane2);
+    }
+    if (!box.childNodes.length) box.appendChild(el("div", "unavail", "Not enough readings to rank."));
+  }
+
+  function renderSummary() {
+    var box = document.getElementById("summary");
+    box.textContent = "";
+    var next = null, low = null;
+    data.subscriptions.forEach(function (s) {
+      var g = groupById(s.group).label;
+      s.windows.forEach(function (w) {
+        var st = windowState(w);
+        var who = s.name + " (" + g + ") · " + w.label;
+        if (st.reset !== null && !st.passed && (!next || st.reset < next.t)) next = { t: st.reset, who: who };
+        if (!st.passed && (!low || st.remaining < low.rem)) low = { rem: st.remaining, who: who };
+      });
+    });
+    function tile(k, v) { var t = el("div", "tile"); t.appendChild(el("div", "k", k)); t.appendChild(el("div", "v", v)); box.appendChild(t); }
+    var g0 = (data.groups || [])[0];
+    var rows = g0 ? ((data.advice || {}).groups || {})[g0.id] || [] : [];
+    var first = rows.filter(function (r) { return r.level === "use"; })[0];
+    tile("Use first" + (g0 && data.groups.length > 1 ? " (" + g0.label + ")" : ""), first
+      ? first.name + " · " + (first.period.label || "").toLowerCase() + ", needed pace " + fmtX(first.need)
+      : (rows.length ? "No slack anywhere: everything on pace" : "—"));
+    tile("Next reset", next ? next.who + " in " + duration(next.t - Date.now()) : "—");
+    tile("Least quota left", low ? low.who + ": " + pct(low.rem) : "—");
+  }
+
+  function render() {
+    if (!data) return;
+    document.title = data.title;
+    document.getElementById("title").textContent = data.title;
+    document.getElementById("version").textContent = "v" + data.version;
+    document.getElementById("android").hidden = !data.apk_url;
+    if (!editing) {
+      var groups = document.getElementById("groups");
+      groups.textContent = "";
+      (data.groups || []).forEach(function (g) {
+        var items = data.subscriptions.filter(function (s) { return s.group === g.id; });
+        if (!items.length) return;
+        groups.appendChild(heading("h2", g));
+        var grid = el("div", "grid");
+        items.forEach(function (s) { grid.appendChild(renderCard(s)); });
+        groups.appendChild(grid);
+      });
+    }
+    renderAdvice();
+    renderSummary();
+    document.getElementById("about").textContent = "Share left and time to reset of each usage window, in your browser's time zone. "
+      + "The page reloads every minute; the server reads the subscriptions every " + Math.round(data.refresh_seconds / 60) + " min.";
+    document.getElementById("meta").textContent = "Updated " + ago(data.last_collect) + " · " + timeFmt.format(new Date());
+  }
+
+  function load() {
+    return api("api/usage").then(function (r) {
+      if (r.status === 401) {
+        document.getElementById("gate").hidden = false;
+        throw new Error("this server needs its token");
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (j) {
+      data = j;
+      document.getElementById("gate").hidden = true;
+      document.getElementById("error").hidden = true;
+      render();
+    }).catch(function (e) {
+      var box = document.getElementById("error");
+      box.hidden = false;
+      box.textContent = "Could not read the data (" + e.message + ")." + (data ? " Showing the last reading." : "");
+    });
+  }
+
+  document.getElementById("gate").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    localStorage.setItem(TOKEN_KEY, document.getElementById("gate-token").value.trim());
+    load();
+  });
+  document.getElementById("refresh").addEventListener("click", function () {
+    var b = this;
+    b.disabled = true;
+    api("api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .catch(function () {})
+      .then(function () { return new Promise(function (ok) { setTimeout(ok, 5000); }); })
+      .then(load)
+      .then(function () { b.disabled = false; });
+  });
+
+  load();
+  setInterval(load, 60000);
+  setInterval(render, 15000);
+})();
+</script>
+</body>
+</html>

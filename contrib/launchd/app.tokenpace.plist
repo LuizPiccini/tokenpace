@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- cp to ~/Library/LaunchAgents/, edit the paths, then
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/app.tokenpace.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>app.tokenpace</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/tokenpace</string>
+        <string>serve</string>
+        <string>--config</string>
+        <string>/Users/YOU/.config/tokenpace/config.toml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/tmp/tokenpace.log</string>
+</dict>
+</plist>

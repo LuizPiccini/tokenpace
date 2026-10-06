@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">tokenpace</string>
+    <string name="widget_name">tokenpace</string>
+    <string name="widget_description" formatted="false">Which AI subscription to use first: % used against % of the period elapsed.</string>
+    <string name="title">tokenpace</string>
+    <string name="setup_intro">Enter the address of your tokenpace server, as you would open it in the phone\'s browser. The phone must reach it (same network or a VPN such as Tailscale).</string>
+    <string name="setup_url_hint">http://my-server:8787</string>
+    <string name="setup_token_hint">Token (only if the server has one)</string>
+    <string name="setup_save">Save and test</string>
+    <string name="setup_close">Close</string>
+</resources>
