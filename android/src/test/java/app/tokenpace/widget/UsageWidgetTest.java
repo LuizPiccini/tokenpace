@@ -198,7 +198,7 @@ public class UsageWidgetTest {
     public void asksForServerFirst() {
         View root = render(null, false, 0);
         assertEquals(0, items(root).count());
-        assertEquals("open the tokenpace app to set the server", status(root));
+        assertEquals("open the Token Pace app to set the server", status(root));
         assertFalse(UsageWidget.refreshBlocking(ctx));
     }
 

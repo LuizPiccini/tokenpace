@@ -1,4 +1,4 @@
-# tokenpace configuration. Copy to tokenpace.toml (or ~/.config/tokenpace/config.toml).
+# Token Pace configuration. Copy to tokenpace.toml (or ~/.config/tokenpace/config.toml).
 
 [server]
 title = "AI subscriptions"

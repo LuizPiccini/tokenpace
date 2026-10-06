@@ -357,7 +357,7 @@ public class UsageWidget extends AppWidgetProvider {
             return note;
         }
         if (serverUrl(context) == null) {
-            return "open the tokenpace app to set the server";
+            return "open the Token Pace app to set the server";
         }
         SharedPreferences p = prefs(context);
         String error = p.getString("last_error", null);

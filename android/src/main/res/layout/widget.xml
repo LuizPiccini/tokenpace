@@ -43,7 +43,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:text="Open the tokenpace app to set the server"
+        android:text="Open the Token Pace app to set the server"
         android:textColor="@color/amber"
         android:textSize="11sp" />
 

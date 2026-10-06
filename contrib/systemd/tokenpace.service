@@ -2,7 +2,7 @@
 #   systemctl --user daemon-reload && systemctl --user enable --now tokenpace
 #   loginctl enable-linger "$USER"     # keep running after logout
 [Unit]
-Description=tokenpace: which AI subscription to use first
+Description=Token Pace: which AI subscription to use first
 After=network-online.target
 
 [Service]

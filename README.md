@@ -1,6 +1,6 @@
-# tokenpace
+# Token Pace
 
-**Which AI subscription should you use first?** tokenpace reads the usage limits of
+**Which AI subscription should you use first?** Token Pace reads the usage limits of
 your AI plans (ChatGPT/Codex, Claude, OpenRouter's free tier, anything you type in by
 hand) and ranks them by how much quota you are about to leave on the table before each
 reset. It is a small self-hosted page, a JSON API and an Android home-screen widget.
@@ -10,7 +10,7 @@ reset. It is a small self-hosted page, a JSON API and an Android home-screen wid
 ## How the ranking works
 
 Every plan has windows that reset: 5 hours, a week, a month, a day. For each
-subscription tokenpace takes its longest window and compares the share of quota left
+subscription Token Pace takes its longest window and compares the share of quota left
 with the share of time left:
 
 > **needed pace** = % of quota left ÷ % of the period left
@@ -98,7 +98,7 @@ on Windows).
 
 ## Reaching it from your phone
 
-tokenpace listens on `127.0.0.1` unless you change `[server] host`. The simplest
+Token Pace listens on `127.0.0.1` unless you change `[server] host`. The simplest
 safe setup is a private network such as [Tailscale](https://tailscale.com): bind to
 the machine's tailnet address, or keep localhost and run
 `tailscale serve --bg 8787`. If anyone else can reach the port, set a token
@@ -106,7 +106,7 @@ the machine's tailnet address, or keep localhost and run
 the page asks for it once (or open it as `http://host:8787/#token=…`). Do not expose
 it to the public internet without a token and TLS.
 
-Without a token, tokenpace only answers requests addressed to an IP address,
+Without a token, Token Pace only answers requests addressed to an IP address,
 `localhost` or the machine's own name, which stops other web pages from reaching it
 through DNS rebinding. If you open it by another DNS name (a Tailscale MagicDNS name,
 say), list it in `[server] allowed_hosts` or set a token.
@@ -138,7 +138,7 @@ cd android
 ```
 
 It needs the Android SDK (platform 34) and JDK 17. Install the APK, add the
-**tokenpace** widget, and enter your server address (and token, if set). To offer the
+**Token Pace** widget, and enter your server address (and token, if set). To offer the
 APK from your own server, set `[android] apk` in the config; the page then links to
 it, and the widget announces newer versions when `version_code` goes up. Group logos
 appear in the widget when they are PNG, JPEG or WebP.
@@ -155,7 +155,7 @@ in `tokenpace/providers.py`, registered in `PROVIDERS`. Windows come from
 when there is nothing to read and `ProviderError("error", ...)` when reading failed.
 Providers must never log, print or return credentials.
 
-tokenpace is not affiliated with OpenAI, Anthropic, OpenRouter or any other provider.
+Token Pace is not affiliated with OpenAI, Anthropic, OpenRouter or any other provider.
 
 ## License
 
