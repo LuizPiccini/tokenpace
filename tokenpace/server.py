@@ -246,7 +246,7 @@ class App:
             age = now - observed if observed else None
             if not e:
                 status = "unavailable"
-                message = {"manual": "Not entered yet: use “Update” on its card.",
+                message = {"manual": "Not entered yet: use “Update numbers” to enter it.",
                            "push": "Waiting for the first push from the other machine."}.get(provider, "No reading yet.")
             elif status in ("error", "unavailable") and e.get("windows"):
                 status = "stale"

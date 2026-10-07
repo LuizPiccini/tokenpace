@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tokenpace"
-version = "0.1.0"
+version = "0.2.0"
 description = "Which AI subscription to use first: quota used vs time elapsed, as a page, an API and an Android widget."
 readme = "README.md"
 requires-python = ">=3.11"

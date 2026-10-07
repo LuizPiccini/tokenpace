@@ -7,6 +7,13 @@ reset. It is a small self-hosted page, a JSON API and an Android home-screen wid
 
 ![The tokenpace page in demo mode](docs/screenshot.png)
 
+The page answers in three seconds: one tile per group names the subscription to use
+first, a timeline shows every reset in the next three days, and each ranked row has a
+single bar. The blue fill is the quota used, the white tick is how much of the period
+has passed, and the hatched band between them is slack you would lose at the reset
+(teal) or use ahead of pace (amber). Short windows such as Claude's 5 hours sit under
+each row as chips, and "Why" explains the numbers.
+
 ## How the ranking works
 
 Every plan has windows that reset: 5 hours, a week, a month, a day. For each
