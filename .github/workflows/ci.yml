@@ -32,3 +32,28 @@ jobs:
         with:
           name: tokenpace-debug-apk
           path: android/build/outputs/apk/debug/*.apk
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the mini window
+        shell: pwsh
+        run: powershell -NoProfile -File windows/build.ps1
+      - name: Render it against the demo server
+        shell: pwsh
+        run: |
+          $srv = Start-Process python -ArgumentList '-m','tokenpace','serve','--demo','--port','8799' -PassThru -NoNewWindow
+          Start-Sleep 3
+          $p = Start-Process windows/build/tokenpace-mini.exe -ArgumentList '--snapshot','mini.png','--server','http://localhost:8799','--expanded' -Wait -PassThru
+          Stop-Process -Id $srv.Id
+          if ($p.ExitCode -ne 0 -or -not (Test-Path mini.png) -or (Get-Item mini.png).Length -lt 10000) { throw "snapshot failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tokenpace-mini
+          path: |
+            windows/build/tokenpace-mini.exe
+            mini.png

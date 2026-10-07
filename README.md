@@ -4,6 +4,7 @@
 your AI plans (ChatGPT/Codex, Claude, OpenRouter's free tier, anything you type in by
 hand) and ranks them by how much quota you are about to leave on the table before each
 reset. It is a small self-hosted page, a JSON API and an Android home-screen widget.
+On Windows there is also a floating mini window with a tray icon.
 
 ![The tokenpace page in demo mode](docs/screenshot.png)
 
@@ -152,6 +153,29 @@ It needs the Android SDK (platform 34) and JDK 17. Install the APK, add the
 APK from your own server, set `[android] apk` in the config; the page then links to
 it, and the widget announces newer versions when `version_code` goes up. Group logos
 appear in the widget when they are PNG, JPEG or WebP.
+
+## Windows mini window
+
+`tokenpace-mini.exe` keeps the answer on screen: a small pill just above the taskbar with
+the plan to use first, its needed pace and reset, and the same pace bar as the page.
+Click it to see every plan; drag it anywhere. A tray icon by the clock draws the top
+plan's bar and opens a menu (refresh, open the page, settings, start with Windows,
+reset position, quit). It reads `/api/widget` like the Android widget.
+
+<img src="docs/windows-mini.png" alt="The Windows mini window, expanded" width="340">
+
+Download it from the [latest release](https://github.com/LuizPiccini/tokenpace/releases/latest),
+run it, and enter the server address (and token, if set). It is a single file with nothing
+to install, and stores its settings in `%APPDATA%\TokenPace\mini.json` with the token
+encrypted for your Windows user.
+
+The exe is not code-signed yet. Windows SmartScreen will ask for confirmation the first
+time ("More info", then "Run anyway"), and PCs with **Smart App Control** turned on block
+it outright, with no exception allowed.
+
+To build it yourself, run `powershell -File windows/build.ps1`. It uses the C# compiler
+and WPF that ship with Windows 10 and 11, so no SDK is needed. A copy you build yourself
+is still unsigned.
 
 ## Development
 

@@ -4,13 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import secrets
 import sys
 import time
 import urllib.error
 import urllib.request
 
 from . import __version__
-from .config import ConfigError, demo_config, load
+from .config import ConfigError, demo_config, find_config, load
 from .pace import iso
 from .providers import _OPENER, PROVIDERS, ProviderError
 
@@ -43,6 +45,29 @@ def cmd_check(args: argparse.Namespace) -> int:
     for s in cfg.subscriptions:
         print(f"  {s['id']:<20} {s['provider']:<16} group={s['group']}")
     print(f"state: {cfg.state_dir}   listen: {cfg.host}:{cfg.port}   token: {'set' if cfg.token else 'none'}")
+    return 0
+
+
+def set_token(path) -> bool:
+    """Write a random token into [server] unless one is already there. Never prints it."""
+    text = path.read_text(encoding="utf-8")
+    if re.search(r"(?m)^\s*token\s*=", text):
+        return False
+    line = f'token = "{secrets.token_urlsafe(24)}"\n'
+    m = re.search(r"(?m)^\[server\][ \t]*(#.*)?\r?\n", text)
+    text = text[:m.end()] + line + text[m.end():] if m else "[server]\n" + line + "\n" + text
+    path.write_text(text, encoding="utf-8")
+    if os.name == "posix":
+        os.chmod(path, 0o600)   # the config now holds a secret
+    return True
+
+
+def cmd_set_token(args: argparse.Namespace) -> int:
+    path = find_config(args.config)
+    if set_token(path):
+        print(f"token written to [server] in {path} (not shown; read it from the file)")
+    else:
+        print(f"{path} already has a token; nothing changed")
     return 0
 
 
@@ -103,6 +128,9 @@ def main(argv: list[str] | None = None) -> int:
     k = sub.add_parser("check", help="validate the config")
     k.add_argument("--config")
     k.set_defaults(fn=cmd_check)
+    t = sub.add_parser("set-token", help="write a random server token into the config without printing it")
+    t.add_argument("--config")
+    t.set_defaults(fn=cmd_set_token)
     u = sub.add_parser("push", help="send this machine's readings to a tokenpace server")
     u.add_argument("--config")
     u.add_argument("--to", required=True, help="server URL, e.g. http://my-server:8787")

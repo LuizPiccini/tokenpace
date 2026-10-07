@@ -31,14 +31,17 @@ Token Pace needs Python 3.11 or newer and nothing else. Run `python3 --version` 
 ## 2. Install
 
 ```sh
-pipx install git+https://github.com/LuizPiccini/tokenpace
+pipx install git+https://github.com/LuizPiccini/tokenpace@v0.3.0
 tokenpace --version
-tokenpace collect --demo > /dev/null && echo demo ok
+tokenpace collect --demo
 ```
+
+The last command should print a block of JSON and exit without an error. These commands
+work the same in Windows PowerShell.
 
 If pipx is missing, install it (`python3 -m pip install --user pipx`, then
 `python3 -m pipx ensurepath`) or use `python3 -m pip install --user
-git+https://github.com/LuizPiccini/tokenpace`. If `tokenpace` is not found afterwards, the
+git+https://github.com/LuizPiccini/tokenpace@v0.3.0`. If `tokenpace` is not found afterwards, the
 install's script directory is not on PATH; run `pipx ensurepath` and open a new shell.
 Note the full path from `command -v tokenpace` (`where tokenpace` on Windows) for step 6.
 
@@ -140,8 +143,9 @@ This reads every plan once and prints JSON. For each item in `subscriptions`, lo
 tokenpace serve --config ~/.config/tokenpace/config.toml
 ```
 
-Confirm with `curl -s http://127.0.0.1:8787/healthz` (expect `"ok": true`), then give the
-person `http://localhost:8787`. Stop this foreground server before step 6b.
+Confirm it answers at `http://127.0.0.1:8787/healthz` (expect `"ok": true`): `curl -s`
+on Linux and macOS, `Invoke-RestMethod` in Windows PowerShell. Then give the person
+`http://localhost:8787`. Stop this foreground server before step 6b.
 
 **6b. Start automatically (ask first).**
 
@@ -164,16 +168,26 @@ systemd unit has a commented `EnvironmentFile` line). Check `/healthz` again aft
 
 The phone has to reach this machine privately. With Tailscale installed on both:
 
-1. Set a token so nothing else on the network can read the page. Generate one with
-   `python3 -c "import secrets; print(secrets.token_urlsafe(24))"` written straight into
-   the config as `[server] token = "…"` (or `TOKENPACE_TOKEN` in the service
-   environment), and tell the person where it is. Do not paste it into the chat.
+1. Set a token so nothing else on the network can read the page:
+   `tokenpace set-token --config ~/.config/tokenpace/config.toml`. It writes a random token
+   into `[server]`, makes the file readable only by its owner on Linux and macOS, and does
+   not print the token. Do not open, print or paste it yourself; tell the person it is the
+   `token` line in that file.
 2. Either set `[server] host` to the machine's Tailscale IP, or keep `127.0.0.1` and run
    `tailscale serve --bg 8787`. Restart Token Pace.
 3. The widget APK is attached to the
    [latest release](https://github.com/LuizPiccini/tokenpace/releases/latest). The person
    downloads it on the phone, allows the install, adds the **Token Pace** widget, and
    enters the server address and token.
+
+## 7b. Windows mini window (optional, ask first)
+
+On Windows, `tokenpace-mini.exe` from the
+[latest release](https://github.com/LuizPiccini/tokenpace/releases/latest) shows the
+ranking as a small floating pill above the taskbar, plus a tray icon. It needs nothing
+installed. The person runs it and enters the server address (and token, if set) in the
+settings window it opens. If Windows reports that Smart App Control blocked it, tell
+the person: the exe is not code-signed yet, and that setting allows no exceptions.
 
 ## 8. Report back
 

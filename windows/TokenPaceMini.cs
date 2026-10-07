@@ -33,7 +33,7 @@ namespace TokenPaceMini
         public string Group, Name, Window, Level, Verdict, Note;
         public int Rank;
         public double Used, Elapsed, Need;
-        public bool Free;
+        public bool Free, HasElapsed;
         public long Resets, Released;
     }
 
@@ -75,11 +75,18 @@ namespace TokenPaceMini
             s = s.TrimEnd('/');
             const string tail = "/api/widget";
             if (s.EndsWith(tail, StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - tail.Length);
+            Uri uri;
+            // Only web addresses: the value is later opened with the shell ("Open page").
+            if (!Uri.TryCreate(s, UriKind.Absolute, out uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)) return "";
             return s;
         }
 
+        const int MaxBody = 1024 * 1024;
+
         public static Snapshot Fetch(string server, string token)
         {
+            if (!string.IsNullOrEmpty(token))
+                foreach (char ch in token) if (ch < 33 || ch > 126) throw new ApiException("The token contains spaces or unusual characters");
             HttpWebRequest req;
             try { req = (HttpWebRequest)WebRequest.Create(server + "/api/widget"); }
             catch (Exception) { throw new ApiException("Not a valid server address"); }
@@ -88,19 +95,37 @@ namespace TokenPaceMini
             req.AllowAutoRedirect = false;   // never resend the token to another host
             req.Accept = "application/json";
             req.UserAgent = "TokenPaceMini/" + Program.Version;
+            // Plain http would hand the token to a system proxy in clear text: go direct.
+            if (req.RequestUri.Scheme == Uri.UriSchemeHttp) req.Proxy = null;
             if (!string.IsNullOrEmpty(token)) req.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            bool timedOut = false;
+            // ReadWriteTimeout is per read; this caps the whole exchange so a slow server can't stall refreshes.
+            using (new Timer(delegate { timedOut = true; try { req.Abort(); } catch (Exception) { } }, null, 30000, Timeout.Infinite))
             try
             {
                 using (var resp = (HttpWebResponse)req.GetResponse())
                 {
                     int code = (int)resp.StatusCode;
                     if (code != 200) throw new ApiException("Server answered HTTP " + code);
-                    using (var r = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
-                        return Parse(r.ReadToEnd());
+                    if (resp.ContentLength > MaxBody) throw new ApiException("Server answer too large");
+                    using (var stream = resp.GetResponseStream())
+                    using (var ms = new MemoryStream())
+                    {
+                        var buf = new byte[16384];
+                        int n;
+                        while ((n = stream.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            if (ms.Length + n > MaxBody) throw new ApiException("Server answer too large");
+                            ms.Write(buf, 0, n);
+                        }
+                        return Parse(Encoding.UTF8.GetString(ms.ToArray()));
+                    }
                 }
             }
+            catch (ApiException) { throw; }
             catch (WebException e)
             {
+                if (timedOut) throw new ApiException("Server too slow to answer");
                 var hr = e.Response as HttpWebResponse;
                 if (hr != null)
                 {
@@ -111,6 +136,10 @@ namespace TokenPaceMini
                     throw new ApiException("Server answered HTTP " + code);
                 }
                 throw new ApiException("Can't reach the server");
+            }
+            catch (IOException)
+            {
+                throw new ApiException(timedOut ? "Server too slow to answer" : "Connection broke while reading");
             }
         }
 
@@ -166,7 +195,9 @@ namespace TokenPaceMini
                     p.Verdict = Str(d, "verdict") ?? "";
                     p.Note = Str(d, "note");
                     p.Used = Num(d, "used_percent", 0);
-                    p.Elapsed = Num(d, "elapsed_percent", 0);
+                    p.Elapsed = Num(d, "elapsed_percent", double.NaN);
+                    p.HasElapsed = !double.IsNaN(p.Elapsed);
+                    if (!p.HasElapsed) p.Elapsed = 0;
                     p.Need = Num(d, "need", 0);
                     p.Free = Bool(d, "free");
                     p.Resets = (long)Num(d, "resets_epoch", 0);
@@ -187,8 +218,12 @@ namespace TokenPaceMini
         {
             object v;
             if (!d.TryGetValue(k, out v) || v == null) return def;
-            try { return Convert.ToDouble(v, CultureInfo.InvariantCulture); }
+            // JSON numbers only (strings such as "NaN" are refused), and only finite ones.
+            if (!(v is int || v is long || v is decimal || v is double)) return def;
+            double x;
+            try { x = Convert.ToDouble(v, CultureInfo.InvariantCulture); }
             catch (Exception) { return def; }
+            return double.IsNaN(x) || double.IsInfinity(x) ? def : x;
         }
 
         static bool Bool(Dictionary<string, object> d, string k)
@@ -421,11 +456,13 @@ namespace TokenPaceMini
     sealed class PaceBar : FrameworkElement
     {
         readonly double used, elapsed, h;
+        readonly bool hasElapsed;
 
-        public PaceBar(double used, double elapsed, double height)
+        public PaceBar(double used, double elapsed, bool hasElapsed, double height)
         {
             this.used = Math.Max(0, Math.Min(100, used));
             this.elapsed = Math.Max(0, Math.Min(100, elapsed));
+            this.hasElapsed = hasElapsed;
             h = height;
             Height = height + 6;
             HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -442,9 +479,10 @@ namespace TokenPaceMini
             dc.PushClip(track);
             double u = used / 100 * w, e = elapsed / 100 * w;
             dc.DrawRectangle(Ui.Used, null, new Rect(0, y, u, h));
-            if (Math.Abs(e - u) > 0.5) dc.DrawRectangle(e >= u ? Ui.SlackHatch : Ui.AheadHatch, null, new Rect(Math.Min(u, e), y, Math.Abs(e - u), h));
+            if (hasElapsed && Math.Abs(e - u) > 0.5) dc.DrawRectangle(e >= u ? Ui.SlackHatch : Ui.AheadHatch, null, new Rect(Math.Min(u, e), y, Math.Abs(e - u), h));
             dc.Pop();
-            dc.DrawRectangle(Ui.Ink, null, new Rect(Math.Max(0, Math.Min(w - 2, e - 1)), 0, 2, h + 6));
+            // Without a time share there is nothing to compare against: the fill alone.
+            if (hasElapsed) dc.DrawRectangle(Ui.Ink, null, new Rect(Math.Max(0, Math.Min(w - 2, e - 1)), 0, 2, h + 6));
         }
     }
 
@@ -454,9 +492,11 @@ namespace TokenPaceMini
         readonly Settings settings;
         readonly StackPanel stack = new StackPanel();
         Border pill, panel;
+        ScrollViewer panelScroll;
         Snapshot data;
         string error;
-        bool fetching, above;
+        bool fetching, above, dragging, renderPending;
+        int generation;   // bumped when the server changes, so a late answer from the old one is dropped
         public event Action Changed;
 
         public Snapshot Data { get { return data; } }
@@ -478,29 +518,78 @@ namespace TokenPaceMini
             Content = stack;
             SourceInitialized += delegate
             {
-                // A tool window stays out of Alt+Tab, like the macOS companion's floating panel.
+                // A tool window stays out of Alt+Tab.
                 var hwnd = new WindowInteropHelper(this).Handle;
                 SetWindowLong(hwnd, -20, GetWindowLong(hwnd, -20) | 0x80);
             };
+            SystemEvents.DisplaySettingsChanged += delegate { Dispatcher.BeginInvoke(new Action(Relayout)); };
             Render();
         }
 
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
         [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
 
+        // Screen coordinates are device pixels; WPF uses 1/96-inch units. This app is system-DPI aware.
+        Vector Scale()
+        {
+            var src = PresentationSource.FromVisual(this);
+            if (src != null && src.CompositionTarget != null)
+            {
+                var m = src.CompositionTarget.TransformToDevice;
+                return new Vector(m.M11, m.M22);
+            }
+            using (var g = Gdi.Graphics.FromHwnd(IntPtr.Zero)) return new Vector(g.DpiX / 96.0, g.DpiY / 96.0);
+        }
+
+        Rect ToDips(Gdi.Rectangle r)
+        {
+            var k = Scale();
+            return new Rect(r.Left / k.X, r.Top / k.Y, r.Width / k.X, r.Height / k.Y);
+        }
+
+        // Work area of the monitor holding the pill (the nearest one if it is off every screen).
+        Rect ScreenArea()
+        {
+            var k = Scale();
+            var pt = new Gdi.Point((int)Math.Round((settings.PillLeft + 30) * k.X), (int)Math.Round((settings.PillTop + 20) * k.Y));
+            return ToDips(Forms.Screen.FromPoint(pt).WorkingArea);
+        }
+
         public void PlaceInitially()
         {
-            var wa = SystemParameters.WorkArea;
-            double vl = SystemParameters.VirtualScreenLeft, vt = SystemParameters.VirtualScreenTop;
-            double vr = vl + SystemParameters.VirtualScreenWidth, vb = vt + SystemParameters.VirtualScreenHeight;
-            if (double.IsNaN(settings.PillLeft) || settings.PillLeft < vl || settings.PillLeft > vr - 60 ||
-                double.IsNaN(settings.PillTop) || settings.PillTop < vt || settings.PillTop > vb - 40)
+            bool onScreen = false;
+            if (!double.IsNaN(settings.PillLeft) && !double.IsNaN(settings.PillTop))
             {
-                // Default: bottom-right, just above the taskbar.
+                var k = Scale();
+                var pt = new Gdi.Point((int)Math.Round((settings.PillLeft + 30) * k.X), (int)Math.Round((settings.PillTop + 20) * k.Y));
+                foreach (var s in Forms.Screen.AllScreens) if (s.WorkingArea.Contains(pt)) onScreen = true;
+            }
+            if (!onScreen)
+            {
+                // Default: bottom-right of the main screen, just above the taskbar.
+                var wa = ToDips(Forms.Screen.PrimaryScreen.WorkingArea);
                 settings.PillLeft = wa.Right - Width0 - 12;
                 settings.PillTop = wa.Bottom - 70;
             }
             Relayout();
+        }
+
+        public void ResetPosition()
+        {
+            settings.PillLeft = double.NaN;
+            settings.PillTop = double.NaN;
+            PlaceInitially();
+            settings.Save();
+            Render();
+        }
+
+        public void ServerChanged()
+        {
+            generation++;
+            fetching = false;
+            data = null;
+            error = null;
+            Refresh();
         }
 
         public void Refresh()
@@ -508,6 +597,7 @@ namespace TokenPaceMini
             if (fetching) return;
             if (!settings.Configured) { error = null; Render(); return; }
             fetching = true;
+            int gen = generation;
             string server = settings.Server, token = settings.Token;
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -518,6 +608,7 @@ namespace TokenPaceMini
                 catch (Exception) { err = "Reading failed"; }
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
+                    if (gen != generation) return;   // the server changed meanwhile
                     fetching = false;
                     if (snap != null) { data = snap; error = null; }
                     else error = err;
@@ -542,25 +633,45 @@ namespace TokenPaceMini
 
         public void Render()
         {
+            if (dragging) { renderPending = true; return; }   // never rebuild the pill under the cursor
+            renderPending = false;
             pill = BuildPill();
             panel = settings.Expanded ? BuildPanel() : null;
             Relayout();
             if (Changed != null) Changed();
         }
 
-        // Keeps the pill where the user put it; the panel opens toward the larger free side.
+        // Keeps the pill where the user put it, inside its screen; the panel opens toward the larger
+        // free side and scrolls when the plans don't fit.
         void Relayout()
         {
-            if (pill == null) return;
-            var wa = SystemParameters.WorkArea;
-            above = !double.IsNaN(settings.PillTop) && settings.PillTop > wa.Top + wa.Height / 2;
+            if (pill == null || dragging) return;
+            pill.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double pillH = pill.DesiredSize.Height;
+            bool placed = !double.IsNaN(settings.PillLeft) && !double.IsNaN(settings.PillTop);
+            Rect area = SystemParameters.WorkArea;
+            if (placed)
+            {
+                area = ScreenArea();
+                settings.PillLeft = Math.Max(area.Left, Math.Min(area.Right - Width0, settings.PillLeft));
+                settings.PillTop = Math.Max(area.Top, Math.Min(area.Bottom - pillH, settings.PillTop));
+            }
+            above = placed && settings.PillTop + pillH / 2 > area.Top + area.Height / 2;
             stack.Children.Clear();
             if (panel != null && above) { panel.Margin = new Thickness(0, 0, 0, Gap); stack.Children.Add(panel); }
             stack.Children.Add(pill);
             if (panel != null && !above) { panel.Margin = new Thickness(0, Gap, 0, 0); stack.Children.Add(panel); }
-            if (double.IsNaN(settings.PillLeft)) return;
+            if (!placed) return;
+            if (panel != null && panelScroll != null)
+            {
+                panelScroll.MaxHeight = double.PositiveInfinity;
+                panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                double room = above ? settings.PillTop - area.Top : area.Bottom - settings.PillTop - pillH;
+                double over = panel.DesiredSize.Height - room;   // DesiredSize includes the gap margin
+                if (over > 0) panelScroll.MaxHeight = Math.Max(80, panelScroll.DesiredSize.Height - over);
+            }
             stack.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double panelH = panel != null && above ? panel.DesiredSize.Height + Gap : 0;
+            double panelH = panel != null && above ? panel.DesiredSize.Height : 0;
             Left = settings.PillLeft - Pad;
             Top = settings.PillTop - Pad - panelH;
         }
@@ -595,18 +706,29 @@ namespace TokenPaceMini
 
             string chipText;
             string chipLevel;
+            Action chipAction = ToggleExpanded;
             var top = data != null ? data.Top() : null;
             if (!settings.Configured)
             {
                 text.Children.Add(Ui.T("Token Pace", 15, Ui.Ink, FontWeights.SemiBold));
                 text.Children.Add(Ui.T("Connect it to your server", 12.5, Ui.Soft, FontWeights.Normal));
                 chipText = "Set up"; chipLevel = "use";
+                chipAction = Program.ShowSettings;
+            }
+            else if (data != null && top == null)
+            {
+                // Connected, but nothing ranked yet: manual plans not entered, or logins missing.
+                text.Children.Add(Ui.T("No readings yet", 15, Ui.Ink, FontWeights.SemiBold));
+                text.Children.Add(Ui.T(error != null ? error : "Enter numbers or sign in", 12.5, error != null ? Ui.Warn : Ui.Soft, FontWeights.Normal));
+                chipText = "Open page"; chipLevel = "on_pace";
+                chipAction = Program.OpenPage;
             }
             else if (top == null)
             {
                 text.Children.Add(Ui.T(error != null ? "No reading yet" : "Reading…", 15, Ui.Ink, FontWeights.SemiBold));
                 text.Children.Add(Ui.T(error ?? settings.Server, 12.5, error != null ? Ui.Warn : Ui.Soft, FontWeights.Normal));
                 chipText = error != null ? "Retry" : "…"; chipLevel = "on_pace";
+                chipAction = Refresh;
             }
             else
             {
@@ -619,7 +741,7 @@ namespace TokenPaceMini
                 sub.Inlines.Add(Ui.R(" · " + Ui.When(top), 12.5, Ui.Soft, FontWeights.Normal));
                 if (error != null) sub.Inlines.Add(Ui.R(" · old reading", 12.5, Ui.Warn, FontWeights.Normal));
                 text.Children.Add(sub);
-                var bar = new PaceBar(top.Used, top.Elapsed, 5);
+                var bar = new PaceBar(top.Used, top.Elapsed, top.HasElapsed, 5);
                 bar.Margin = new Thickness(0, 3, 0, 0);
                 text.Children.Add(bar);
                 chipText = top.Verdict; chipLevel = top.Level;
@@ -638,9 +760,7 @@ namespace TokenPaceMini
             chip.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
                 e.Handled = true;
-                if (!settings.Configured) Program.ShowSettings();
-                else if (data == null) Refresh();
-                else ToggleExpanded();
+                chipAction();
             };
             Grid.SetColumn(chip, 2);
             g.Children.Add(chip);
@@ -651,9 +771,7 @@ namespace TokenPaceMini
             chev.Background = Brushes.Transparent;
             chev.Cursor = Cursors.Hand;
             chev.VerticalAlignment = VerticalAlignment.Center;
-            var wa = SystemParameters.WorkArea;
-            bool opensUp = !double.IsNaN(settings.PillTop) && settings.PillTop > wa.Top + wa.Height / 2;
-            bool pointUp = settings.Expanded ? !opensUp : opensUp;
+            bool pointUp = settings.Expanded ? !above : above;
             var path = new System.Windows.Shapes.Path();
             path.Data = Geometry.Parse(pointUp ? "M0,6 L6,0 L12,6" : "M0,0 L6,6 L12,0");
             path.Stroke = Ui.Soft;
@@ -673,10 +791,14 @@ namespace TokenPaceMini
             b.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
                 double l0 = Left, t0 = Top;
-                try { DragMove(); } catch (InvalidOperationException) { return; }
+                dragging = true;
+                try { DragMove(); }
+                catch (InvalidOperationException) { }
+                finally { dragging = false; }
                 if (Math.Abs(Left - l0) < 2 && Math.Abs(Top - t0) < 2)
                 {
-                    if (settings.Configured && data != null) ToggleExpanded();
+                    if (settings.Configured && data != null && data.Top() != null) ToggleExpanded();
+                    else if (renderPending) Render();
                     return;
                 }
                 double panelH = panel != null && above ? panel.ActualHeight + Gap : 0;
@@ -701,10 +823,15 @@ namespace TokenPaceMini
             b.Effect = Ui.Shadow();
             var s = new StackPanel();
             b.Child = s;
+            var list = new StackPanel();
+            panelScroll = new ScrollViewer();
+            panelScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            panelScroll.Content = list;
+            s.Children.Add(panelScroll);
 
             if (data == null || data.Groups.Count == 0)
             {
-                s.Children.Add(Ui.T(error ?? "No reading yet.", 13, Ui.Soft, FontWeights.Normal));
+                list.Children.Add(Ui.T(error ?? "No reading yet.", 13, Ui.Soft, FontWeights.Normal));
             }
             else
             {
@@ -714,18 +841,20 @@ namespace TokenPaceMini
                     if (g.Items.Count == 0) continue;
                     var h = Ui.T(g.Label.ToUpperInvariant(), 11, Ui.Muted, FontWeights.SemiBold);
                     h.Margin = new Thickness(0, first ? 2 : 12, 0, 2);
-                    s.Children.Add(h);
+                    list.Children.Add(h);
                     first = false;
-                    foreach (var p in g.Items) s.Children.Add(Row(p));
+                    foreach (var p in g.Items) list.Children.Add(Row(p));
                 }
+                if (first) list.Children.Add(Ui.T("No plan has a reading yet.", 13, Ui.Soft, FontWeights.Normal));
             }
 
             var foot = new Grid();
             foot.Margin = new Thickness(0, 10, 0, 0);
             foot.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             foot.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var status = data == null ? "" : "Updated " + Ago(data.At);
-            var st = Ui.T(error != null ? error : status, 11.5, error != null ? Ui.Warn : Ui.Muted, FontWeights.Normal);
+            // Without data the error is already the panel's text; with data it explains why it's old.
+            var status = data == null ? "" : error != null ? error : "Updated " + Ago(data.At);
+            var st = Ui.T(status, 11.5, error != null ? Ui.Warn : Ui.Muted, FontWeights.Normal);
             st.VerticalAlignment = VerticalAlignment.Center;
             foot.Children.Add(st);
             var links = new StackPanel();
@@ -755,7 +884,7 @@ namespace TokenPaceMini
             Grid.SetColumn(pace, 1);
             top.Children.Add(pace);
             row.Children.Add(top);
-            var bar = new PaceBar(p.Used, p.Elapsed, 6);
+            var bar = new PaceBar(p.Used, p.Elapsed, p.HasElapsed, 6);
             bar.Margin = new Thickness(0, 2, 0, 1);
             row.Children.Add(bar);
             var detail = Ui.T("", 11.5, Ui.Muted, FontWeights.Normal);
@@ -818,6 +947,8 @@ namespace TokenPaceMini
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Topmost = true;
+            bool closed = false;
+            Closed += delegate { closed = true; };
             var s = new StackPanel();
             s.Margin = new Thickness(18);
             Content = s;
@@ -861,7 +992,7 @@ namespace TokenPaceMini
             save.Click += delegate
             {
                 string url = Api.Normalize(server.Text), tok = token.Password.Trim();
-                if (url.Length == 0) { msg.Text = "Enter the server address."; return; }
+                if (url.Length == 0) { msg.Text = "Enter an http:// or https:// address."; return; }
                 save.IsEnabled = false;
                 msg.Text = "Checking…";
                 bool start = startup.IsChecked == true;
@@ -873,6 +1004,7 @@ namespace TokenPaceMini
                     catch (Exception) { err = "Reading failed"; }
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
+                        if (closed) return;   // cancelled while checking: change nothing
                         save.IsEnabled = true;
                         if (err != null) { msg.Text = err + ". Check the address and token."; return; }
                         settings.Server = url;
@@ -922,6 +1054,7 @@ namespace TokenPaceMini
             showItem = new Forms.ToolStripMenuItem("Hide pill", null, delegate { Program.TogglePill(); });
             menu.Items.Add(showItem);
             menu.Items.Add(new Forms.ToolStripMenuItem("Show all plans", null, delegate { Program.ShowExpanded(); }));
+            menu.Items.Add(new Forms.ToolStripMenuItem("Reset position", null, delegate { Program.ResetPosition(); }));
             menu.Items.Add(new Forms.ToolStripMenuItem("Refresh now", null, delegate { Program.RefreshNow(); }));
             menu.Items.Add(new Forms.ToolStripMenuItem("Open page", null, delegate { Program.OpenPage(); }));
             menu.Items.Add(new Forms.ToolStripSeparator());
@@ -984,9 +1117,12 @@ namespace TokenPaceMini
                 {
                     float u = (float)(Math.Max(0, Math.Min(100, top.Used)) / 100 * w), e = (float)(Math.Max(0, Math.Min(100, top.Elapsed)) / 100 * w);
                     using (var used = new Gdi.SolidBrush(Gdi.Color.FromArgb(0x7E, 0x9B, 0xD0))) g.FillRectangle(used, x, y, u, h);
-                    var band = e >= u ? Gdi.Color.FromArgb(0x4F, 0xB8, 0xA6) : Gdi.Color.FromArgb(0xF5, 0xA6, 0x23);
-                    using (var bb = new Gdi.SolidBrush(band)) g.FillRectangle(bb, x + Math.Min(u, e), y, Math.Abs(e - u), h);
-                    using (var tick = new Gdi.SolidBrush(Gdi.Color.White)) g.FillRectangle(tick, x + e - 0.6f * k, y - 1.6f * k, 1.2f * k, h + 3.2f * k);
+                    if (top.HasElapsed)
+                    {
+                        var band = e >= u ? Gdi.Color.FromArgb(0x4F, 0xB8, 0xA6) : Gdi.Color.FromArgb(0xF5, 0xA6, 0x23);
+                        using (var bb = new Gdi.SolidBrush(band)) g.FillRectangle(bb, x + Math.Min(u, e), y, Math.Abs(e - u), h);
+                        using (var tick = new Gdi.SolidBrush(Gdi.Color.White)) g.FillRectangle(tick, x + e - 0.6f * k, y - 1.6f * k, 1.2f * k, h + 3.2f * k);
+                    }
                 }
             }
             return bmp;
@@ -1078,8 +1214,13 @@ namespace TokenPaceMini
             s.Token = Arg(args, "--token") ?? "";
             s.Expanded = Array.IndexOf(args, "--expanded") >= 0;
             var w = new MiniWindow(s);
-            try { w.SetData(Api.Fetch(s.Server, s.Token), null); }
-            catch (ApiException e) { w.SetData(null, e.Message); }
+            if (s.Server.Length == 0) { w.SetData(null, "Not an http:// or https:// address"); }
+            else
+            {
+                try { w.SetData(Api.Fetch(s.Server, s.Token), null); }
+                catch (ApiException e) { w.SetData(null, e.Message); }
+                catch (Exception) { w.SetData(null, "Reading failed"); }
+            }
             w.RenderTo(file, Arg(args, "--backdrop"));
             return 0;
         }
@@ -1104,6 +1245,12 @@ namespace TokenPaceMini
 
         public static void RefreshNow() { window.Refresh(); }
 
+        public static void ResetPosition()
+        {
+            if (!window.IsVisible) window.Show();
+            window.ResetPosition();
+        }
+
         public static void ShowMenu() { tray.ShowMenu(); }
 
         public static void OpenPage()
@@ -1115,7 +1262,7 @@ namespace TokenPaceMini
         public static void ShowSettings()
         {
             if (settingsWindow != null) { settingsWindow.Activate(); return; }
-            settingsWindow = new SettingsWindow(settings, delegate { window.Refresh(); });
+            settingsWindow = new SettingsWindow(settings, delegate { window.ServerChanged(); });
             settingsWindow.Closed += delegate { settingsWindow = null; };
             settingsWindow.Show();
             settingsWindow.Activate();
