@@ -41,7 +41,7 @@ class SetTokenTest(unittest.TestCase):
         """set-token on text must leave a config that loads with a real, new token."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.toml"
-            path.write_text(text, encoding="utf-8")
+            path.write_bytes(text.encode("utf-8"))   # exact bytes: write_text would double \r on Windows
             self.assertEqual(set_token(path), replaced)
             cfg = load(str(path))
             self.assertTrue(cfg.token and cfg.token != "long-random-string" and len(cfg.token) >= 30)
@@ -66,3 +66,19 @@ class SetTokenTest(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 set_token(path)
             self.assertEqual(path.read_text(encoding="utf-8"), original)
+            # A token-looking line inside a multiline string must not be touched.
+            original = '[server]\ntitle = """Subs\ntoken = here\n"""\n[[subscriptions]]\nid = "d"\nprovider = "demo"\n'
+            path.write_text(original, encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                set_token(path)
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_keeps_top_level_keys_and_line_endings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_bytes(b'port = 9999\r\nhost = "0.0.0.0"\r\n[[subscriptions]]\r\nid = "d"\r\nprovider = "demo"\r\n')
+            self.assertTrue(set_token(path))
+            cfg = load(str(path))
+            self.assertEqual((cfg.host, cfg.port), ("127.0.0.1", 8787))   # stray keys stay outside [server]
+            self.assertTrue(cfg.token)
+            self.assertIn(b"\r\n", path.read_bytes())

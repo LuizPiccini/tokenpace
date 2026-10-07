@@ -60,7 +60,8 @@ def set_token(path) -> bool:
 
     Returns False when [server] already has a usable token. Raises ConfigError, writing
     nothing, when the result would not load with the new token."""
-    text = path.read_text(encoding="utf-8")
+    with open(path, encoding="utf-8", newline="") as f:   # keep the file's own line endings
+        text = f.read()
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -77,8 +78,12 @@ def set_token(path) -> bool:
     head = next((i for i, ln in enumerate(lines) if SERVER_HEADER.match(ln.rstrip("\r\n"))), None)
     if head is None:
         if "server" in data:
-            raise ConfigError(f"{path}: [server] is written in a form set-token can't edit; add token = \"...\" by hand")
-        lines = ["[server]\n", line, "\n"] + lines
+            raise ConfigError(f"{path}: [server] is written in a form set-token can't edit. "
+                              "Ask the person to add a token line under [server] themselves.")
+        # At the end: keys above the first table must not move into [server].
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines += ["\n", "[server]\n", line]
     else:
         if not lines[head].endswith("\n"):
             lines[head] += "\n"
@@ -86,12 +91,14 @@ def set_token(path) -> bool:
         body = [ln for ln in lines[head + 1:end] if not TOKEN_LINE.match(ln)]   # drops an empty or placeholder token
         lines = lines[:head + 1] + [line] + body + lines[end:]
     new = "".join(lines)
+    expected = {**data, "server": {**{k: v for k, v in server.items() if k != "token"}, "token": token}}
     try:
-        ok = tomllib.loads(new).get("server", {}).get("token") == token
+        ok = tomllib.loads(new) == expected   # only the token may change
     except tomllib.TOMLDecodeError:
         ok = False
     if not ok:
-        raise ConfigError(f"{path}: could not add the token safely; add token = \"...\" under [server] by hand")
+        raise ConfigError(f"{path}: could not add the token without changing anything else. "
+                          "Ask the person to add a token line under [server] themselves.")
     tmp = path.with_name(path.name + ".tokenpace-tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never readable by others, even briefly
     try:
@@ -191,4 +198,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 

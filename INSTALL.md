@@ -173,6 +173,7 @@ The phone has to reach this machine privately. With Tailscale installed on both:
    into `[server]`, makes the file readable only by its owner on Linux and macOS, and does
    not print the token. Do not open, print or paste it yourself; tell the person it is the
    `token` line in that file.
+   If it refuses to edit the file, stop and ask the person to add the token themselves.
 2. Either set `[server] host` to the machine's Tailscale IP, or keep `127.0.0.1` and run
    `tailscale serve --bg 8787`. Restart Token Pace.
 3. The widget APK is attached to the

@@ -522,7 +522,8 @@ namespace TokenPaceMini
                 var hwnd = new WindowInteropHelper(this).Handle;
                 SetWindowLong(hwnd, -20, GetWindowLong(hwnd, -20) | 0x80);
             };
-            SystemEvents.DisplaySettingsChanged += delegate { Dispatcher.BeginInvoke(new Action(Relayout)); };
+            // A full render: a new panel and a fresh arrow for the new screen layout.
+            SystemEvents.DisplaySettingsChanged += delegate { Dispatcher.BeginInvoke(new Action(Render)); };
             Render();
         }
 
