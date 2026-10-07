@@ -51,7 +51,7 @@ git clone https://github.com/LuizPiccini/tokenpace && cd tokenpace
 python -m tokenpace serve --demo          # synthetic data at http://localhost:8787
 ```
 
-Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace`.
+Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.3.0`.
 
 Then describe your own subscriptions:
 

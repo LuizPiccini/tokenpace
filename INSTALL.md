@@ -53,7 +53,7 @@ Check existence only:
 |---|---|---|
 | ChatGPT (Plus/Pro/…) | `$CODEX_HOME/auth.json` or `~/.codex/auth.json` exists (the Codex CLI login) | `codex` |
 | Claude (Pro/Max) | `$CLAUDE_CONFIG_DIR/.credentials.json` or `~/.claude/.credentials.json` exists; on macOS Claude Code may keep it in the Keychain instead, which the provider reads itself | `claude_code` |
-| OpenRouter free models | `OPENROUTER_API_KEY` is set (test with `[ -n "$OPENROUTER_API_KEY" ]`, do not echo it) | `openrouter_free` |
+| OpenRouter free models | `OPENROUTER_API_KEY` is set (test with `[ -n "$OPENROUTER_API_KEY" ]`, or `[bool]$env:OPENROUTER_API_KEY` in PowerShell; do not echo it) | `openrouter_free` |
 
 Then ask the person, in one message:
 

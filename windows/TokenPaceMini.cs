@@ -635,10 +635,20 @@ namespace TokenPaceMini
         {
             if (dragging) { renderPending = true; return; }   // never rebuild the pill under the cursor
             renderPending = false;
+            double scrolled = panelScroll != null ? panelScroll.VerticalOffset : 0;
+            above = OpensAbove(pill != null ? pill.DesiredSize.Height : 60);   // the arrow needs it before Relayout
             pill = BuildPill();
             panel = settings.Expanded ? BuildPanel() : null;
             Relayout();
+            if (panel != null && scrolled > 0) panelScroll.ScrollToVerticalOffset(scrolled);   // keep the place in a long list
             if (Changed != null) Changed();
+        }
+
+        bool OpensAbove(double pillH)
+        {
+            if (double.IsNaN(settings.PillLeft) || double.IsNaN(settings.PillTop)) return false;
+            var area = ScreenArea();
+            return settings.PillTop + pillH / 2 > area.Top + area.Height / 2;
         }
 
         // Keeps the pill where the user put it, inside its screen; the panel opens toward the larger
@@ -656,7 +666,7 @@ namespace TokenPaceMini
                 settings.PillLeft = Math.Max(area.Left, Math.Min(area.Right - Width0, settings.PillLeft));
                 settings.PillTop = Math.Max(area.Top, Math.Min(area.Bottom - pillH, settings.PillTop));
             }
-            above = placed && settings.PillTop + pillH / 2 > area.Top + area.Height / 2;
+            above = placed && OpensAbove(pillH);
             stack.Children.Clear();
             if (panel != null && above) { panel.Margin = new Thickness(0, 0, 0, Gap); stack.Children.Add(panel); }
             stack.Children.Add(pill);
@@ -668,7 +678,13 @@ namespace TokenPaceMini
                 panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 double room = above ? settings.PillTop - area.Top : area.Bottom - settings.PillTop - pillH;
                 double over = panel.DesiredSize.Height - room;   // DesiredSize includes the gap margin
-                if (over > 0) panelScroll.MaxHeight = Math.Max(80, panelScroll.DesiredSize.Height - over);
+                if (over > 0)
+                {
+                    panelScroll.MaxHeight = Math.Max(80, panelScroll.DesiredSize.Height - over);
+                    // Measure is cached: without these the panel keeps reporting its old, full height.
+                    ((UIElement)panelScroll.Parent).InvalidateMeasure();
+                    panel.InvalidateMeasure();
+                }
             }
             stack.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             double panelH = panel != null && above ? panel.DesiredSize.Height : 0;
@@ -1222,7 +1238,7 @@ namespace TokenPaceMini
                 catch (Exception) { w.SetData(null, "Reading failed"); }
             }
             w.RenderTo(file, Arg(args, "--backdrop"));
-            return 0;
+            return w.Error == null ? 0 : 2;   // so scripts and CI notice a failed read
         }
 
         static string Arg(string[] args, string name)

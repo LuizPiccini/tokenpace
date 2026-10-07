@@ -47,7 +47,9 @@ jobs:
         shell: pwsh
         run: |
           $srv = Start-Process python -ArgumentList '-m','tokenpace','serve','--demo','--port','8799' -PassThru -NoNewWindow
-          Start-Sleep 3
+          $up = $false
+          for ($i = 0; $i -lt 30 -and -not $up; $i++) { try { $up = (Invoke-RestMethod http://localhost:8799/healthz).ok } catch { Start-Sleep 1 } }
+          if (-not $up) { throw "demo server did not start" }
           $p = Start-Process windows/build/tokenpace-mini.exe -ArgumentList '--snapshot','mini.png','--server','http://localhost:8799','--expanded' -Wait -PassThru
           Stop-Process -Id $srv.Id
           if ($p.ExitCode -ne 0 -or -not (Test-Path mini.png) -or (Get-Item mini.png).Length -lt 10000) { throw "snapshot failed" }

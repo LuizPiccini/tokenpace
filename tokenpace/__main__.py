@@ -8,6 +8,7 @@ import re
 import secrets
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 
@@ -48,17 +49,60 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+PLACEHOLDER_TOKENS = {"long-random-string"}   # the value in config.example.toml
+SERVER_HEADER = re.compile(r"^\s*\[\s*server\s*\]\s*(#.*)?$")
+TABLE_HEADER = re.compile(r"^\s*\[")
+TOKEN_LINE = re.compile(r"^\s*token\s*=")
+
+
 def set_token(path) -> bool:
-    """Write a random token into [server] unless one is already there. Never prints it."""
+    """Write a random token into [server] unless a real one is there. Never prints it.
+
+    Returns False when [server] already has a usable token. Raises ConfigError, writing
+    nothing, when the result would not load with the new token."""
     text = path.read_text(encoding="utf-8")
-    if re.search(r"(?m)^\s*token\s*=", text):
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path}: {exc}") from None
+    server = data.get("server", {})
+    if not isinstance(server, dict):
+        raise ConfigError(f"{path}: 'server' is not a table")
+    current = server.get("token")
+    if isinstance(current, str) and current.strip() and current not in PLACEHOLDER_TOKENS:
         return False
-    line = f'token = "{secrets.token_urlsafe(24)}"\n'
-    m = re.search(r"(?m)^\[server\][ \t]*(#.*)?\r?\n", text)
-    text = text[:m.end()] + line + text[m.end():] if m else "[server]\n" + line + "\n" + text
-    path.write_text(text, encoding="utf-8")
-    if os.name == "posix":
-        os.chmod(path, 0o600)   # the config now holds a secret
+    token = secrets.token_urlsafe(24)
+    line = f'token = "{token}"\n'
+    lines = text.splitlines(keepends=True)
+    head = next((i for i, ln in enumerate(lines) if SERVER_HEADER.match(ln.rstrip("\r\n"))), None)
+    if head is None:
+        if "server" in data:
+            raise ConfigError(f"{path}: [server] is written in a form set-token can't edit; add token = \"...\" by hand")
+        lines = ["[server]\n", line, "\n"] + lines
+    else:
+        if not lines[head].endswith("\n"):
+            lines[head] += "\n"
+        end = next((i for i in range(head + 1, len(lines)) if TABLE_HEADER.match(lines[i])), len(lines))
+        body = [ln for ln in lines[head + 1:end] if not TOKEN_LINE.match(ln)]   # drops an empty or placeholder token
+        lines = lines[:head + 1] + [line] + body + lines[end:]
+    new = "".join(lines)
+    try:
+        ok = tomllib.loads(new).get("server", {}).get("token") == token
+    except tomllib.TOMLDecodeError:
+        ok = False
+    if not ok:
+        raise ConfigError(f"{path}: could not add the token safely; add token = \"...\" under [server] by hand")
+    tmp = path.with_name(path.name + ".tokenpace-tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never readable by others, even briefly
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(new)
+        if os.name == "posix":
+            os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return True
 
 
@@ -147,3 +191,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

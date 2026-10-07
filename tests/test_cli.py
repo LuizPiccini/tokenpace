@@ -6,7 +6,8 @@ from io import StringIO
 from pathlib import Path
 
 from tokenpace.__main__ import main
-from tokenpace.config import load
+from tokenpace.__main__ import set_token
+from tokenpace.config import ConfigError, load
 
 
 class SetTokenTest(unittest.TestCase):
@@ -35,3 +36,33 @@ class SetTokenTest(unittest.TestCase):
             path.write_text('[[subscriptions]]\nid = "d"\nprovider = "demo"\n', encoding="utf-8")
             self.run_cli(path)
             self.assertTrue(load(str(path)).token)
+
+    def check(self, text, replaced=True):
+        """set-token on text must leave a config that loads with a real, new token."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(text, encoding="utf-8")
+            self.assertEqual(set_token(path), replaced)
+            cfg = load(str(path))
+            self.assertTrue(cfg.token and cfg.token != "long-random-string" and len(cfg.token) >= 30)
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["config.toml"])
+            return path.read_text(encoding="utf-8")
+
+    def test_tricky_configs(self):
+        sub = '\n[[subscriptions]]\nid = "d"\nprovider = "demo"\n'
+        self.check(sub + "[server]")                                   # header last, no newline
+        self.check("[ server ]\nport = 8787\n" + sub)                 # spaces inside the brackets
+        self.check('[server]\ntoken = ""\nport = 8787\n' + sub)        # empty token: replaced
+        self.check('[server] # main\r\ntoken = "long-random-string"\r\n' + sub.replace("\n", "\r\n"))   # placeholder, CRLF
+        self.check('[[groups]]\nid = "g"\nlabel = "G"\ntoken = "x"\n[server]\nport = 1\n' + sub.replace('provider = "demo"', 'provider = "demo"\ngroup = "g"'))
+        text = self.check('[server]\ntoken = "' + "k" * 32 + '"\n' + sub, replaced=False)
+        self.assertIn("k" * 32, text)
+
+    def test_refuses_what_it_cannot_edit_safely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            original = 'server = { port = 8787 }\n[[subscriptions]]\nid = "d"\nprovider = "demo"\n'
+            path.write_text(original, encoding="utf-8")
+            with self.assertRaises(ConfigError):
+                set_token(path)
+            self.assertEqual(path.read_text(encoding="utf-8"), original)

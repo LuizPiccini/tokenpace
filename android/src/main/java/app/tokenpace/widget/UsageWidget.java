@@ -587,7 +587,10 @@ public class UsageWidget extends AppWidgetProvider {
             if ("blocked".equals(level) && !r.isNull("released_epoch")) {
                 detail.append("used up · frees in ").append(duration(r.optLong("released_epoch") - now));
             } else {
-                detail.append("used ").append(used).append("% · period ").append(elapsed).append('%');
+                detail.append("used ").append(used).append('%');
+                if (hasElapsed) {
+                    detail.append(" · period ").append(elapsed).append('%');
+                }
                 if (!r.optBoolean("free", false) && r.has("need")) {
                     detail.append(" · ").append(times(r.optDouble("need", 0)));
                 }
