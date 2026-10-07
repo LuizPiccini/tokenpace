@@ -572,8 +572,15 @@ public class UsageWidget extends AppWidgetProvider {
             row.setTextColor(R.id.row_verdict, levelColor(level));
             int used = (int) Math.round(r.optDouble("used_percent", 0));
             int elapsed = (int) Math.round(r.optDouble("elapsed_percent", 0));
-            row.setProgressBar(R.id.row_bar, 100, clamp(used), false);
-            row.setInt(R.id.row_bar, "setSecondaryProgress", clamp(elapsed));
+            // One bar, two colours. Behind pace: blue = used, teal up to the time elapsed (slack).
+            // Ahead: blue up to the time elapsed, amber from there to the used share. The stock
+            // ProgressBar draws its secondary layer under the primary, so each case needs its own bar.
+            boolean ahead = used > elapsed;
+            int bar = ahead ? R.id.row_bar_ahead : R.id.row_bar;
+            row.setViewVisibility(R.id.row_bar, ahead ? View.GONE : View.VISIBLE);
+            row.setViewVisibility(R.id.row_bar_ahead, ahead ? View.VISIBLE : View.GONE);
+            row.setProgressBar(bar, 100, clamp(ahead ? elapsed : used), false);
+            row.setInt(bar, "setSecondaryProgress", clamp(ahead ? used : elapsed));
             StringBuilder detail = new StringBuilder();
             if ("blocked".equals(level) && !r.isNull("released_epoch")) {
                 detail.append("used up · frees in ").append(duration(r.optLong("released_epoch") - now));

@@ -8,4 +8,5 @@
     <color name="used">#7894C5</color>
     <color name="elapsed">#2E6B62</color>
     <color name="amber">#F5A623</color>
+    <color name="ahead">#C98A1E</color>
 </resources>

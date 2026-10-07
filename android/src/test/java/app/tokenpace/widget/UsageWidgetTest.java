@@ -150,6 +150,8 @@ public class UsageWidgetTest {
         ProgressBar bar = first.findViewById(R.id.row_bar);
         assertEquals(32, bar.getProgress());
         assertEquals(75, bar.getSecondaryProgress());
+        assertEquals(View.VISIBLE, bar.getVisibility());
+        assertEquals(View.GONE, first.findViewById(R.id.row_bar_ahead).getVisibility());
         assertEquals("used 32% · period 75% · 2.8× · resets 1d 17h", text(first, R.id.row_detail));
         assertEquals(0xFF4FB8A6, color(first));
 
@@ -162,6 +164,13 @@ public class UsageWidgetTest {
         assertEquals(0xFF7894C5, color(free));
 
         assertEquals("used up · frees in 2h10", text(list.get(4), R.id.row_detail));
+        // Ahead of pace (90% used, 40% elapsed): the amber bar replaces the teal one.
+        View save = list.get(5);
+        assertEquals(View.GONE, save.findViewById(R.id.row_bar).getVisibility());
+        ProgressBar aheadBar = save.findViewById(R.id.row_bar_ahead);
+        assertEquals(View.VISIBLE, aheadBar.getVisibility());
+        assertEquals(40, aheadBar.getProgress());
+        assertEquals(90, aheadBar.getSecondaryProgress());
         assertEquals("Work", text(list.get(6), R.id.section_text));
         assertEquals("3. Gemini · Week", text(list.get(9), R.id.row_name));
         assertNull(status(root));

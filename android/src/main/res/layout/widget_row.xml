@@ -43,6 +43,19 @@
         android:minHeight="6dp"
         android:progressDrawable="@drawable/pace_progress" />
 
+    <ProgressBar
+        android:id="@+id/row_bar_ahead"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="3dp"
+        android:layout_marginBottom="2dp"
+        android:max="100"
+        android:maxHeight="6dp"
+        android:minHeight="6dp"
+        android:progressDrawable="@drawable/pace_progress_ahead"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/row_detail"
         android:layout_width="match_parent"
