@@ -40,6 +40,9 @@ an optional logo.
 
 ## Quick start
 
+To let your AI coding agent install it, ask it to follow [INSTALL.md](INSTALL.md):
+*"Install Token Pace by following https://raw.githubusercontent.com/LuizPiccini/tokenpace/main/INSTALL.md"*.
+
 Python 3.11 or newer, no other dependencies.
 
 ```sh
