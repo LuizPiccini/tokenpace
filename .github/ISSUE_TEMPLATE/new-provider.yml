@@ -1,0 +1,54 @@
+name: New provider
+description: Propose a reader for an AI plan Token Pace does not cover yet
+title: "Provider: "
+labels: ["provider"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a provider. **Do not paste tokens, API keys, cookies or full
+        responses that contain account IDs.** Redact them, or describe the fields instead.
+  - type: input
+    id: plan
+    attributes:
+      label: Provider and plan
+      description: The service and the plan or tier, as the provider names them.
+      placeholder: "e.g. Example AI, Pro plan"
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: How can its usage be read?
+      options:
+        - A documented API
+        - An undocumented endpoint the provider's own app or CLI uses
+        - Only a page in the provider's console
+        - I don't know yet
+    validations:
+      required: true
+  - type: textarea
+    id: windows
+    attributes:
+      label: Limits and resets
+      description: Which windows the plan has (5 hours, day, week, month, per model) and when each resets.
+    validations:
+      required: true
+  - type: textarea
+    id: auth
+    attributes:
+      label: Credentials
+      description: Where the login or key lives (a CLI's auth file, an API key, a browser session). Describe it; do not paste it.
+    validations:
+      required: true
+  - type: textarea
+    id: docs
+    attributes:
+      label: Documentation or examples
+      description: Links to the API docs, or a redacted sample response.
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to write the pull request for this provider.

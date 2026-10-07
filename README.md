@@ -162,6 +162,9 @@ in `tokenpace/providers.py`, registered in `PROVIDERS`. Windows come from
 when there is nothing to read and `ProviderError("error", ...)` when reading failed.
 Providers must never log, print or return credentials.
 
+Contributions, especially new providers, are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md)
+and open a **New provider** issue to start.
+
 Token Pace is not affiliated with OpenAI, Anthropic, OpenRouter or any other provider.
 
 ## License
