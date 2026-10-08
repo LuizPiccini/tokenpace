@@ -172,8 +172,9 @@ It is part of the Python package: no extra download, only the standard library. 
 run it asks for the server address (and token, if set) and keeps them in
 `%APPDATA%\TokenPace\mini.json`, with the token encrypted for your Windows user. It runs
 on PCs with Smart App Control, which blocks unsigned programs, because Python itself is
-signed. If Windows blocks the `tokenpace` command that pip or pipx created, use the
-`pythonw -m tokenpace mini` form above with the Python it was installed into.
+signed. Use the Python Token Pace was installed into: with pipx that is the one in its
+tokenpace environment, not the `pythonw` on your PATH. Since `pythonw` shows no errors,
+check first with `python -m tokenpace mini --help` from the same folder.
 
 ## Development
 

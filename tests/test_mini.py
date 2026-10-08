@@ -1,4 +1,5 @@
 import json
+import sys
 import threading
 import time
 import unittest
@@ -99,8 +100,10 @@ class FetchTest(unittest.TestCase):
     def test_refuses_what_a_hostile_server_sends(self):
         with self.assertRaisesRegex(mini.MiniError, "too large"):
             mini.fetch(self.base + "/big")
+        start = time.monotonic()
         with mock.patch.object(mini, "TOTAL_TIMEOUT", 1.0), self.assertRaisesRegex(mini.MiniError, "too slow"):
-            mini.fetch(self.base + "/slow")
+            mini.fetch(self.base + "/slow")   # the body drips for 4 s
+        self.assertLess(time.monotonic() - start, 2.5)
         with self.assertRaisesRegex(mini.MiniError, "HTTP 302"):
             mini.fetch(self.base + "/redirect", "secret")
         self.assertFalse(any(p.startswith("/steal") for p, _ in Hostile.seen))   # redirect not followed
@@ -119,6 +122,8 @@ class FetchTest(unittest.TestCase):
 
     def test_rows_are_capped(self):
         self.assertEqual(len(mini.fetch(self.base + "/many")[0]["items"]), mini.MAX_ROWS)
+        groups = mini.parse(json.dumps({"groups": {"g%d" % i: [{}] for i in range(500)}}))
+        self.assertEqual(len(groups), mini.MAX_ROWS)
 
     def test_http_in_capitals_bypasses_the_proxy(self):
         hits = []
@@ -172,6 +177,20 @@ class ParseTest(unittest.TestCase):
         self.assertIsNone(mini.top_plan([{"label": "P", "items": []}]))
         self.assertEqual(mini.clip16("ab\U0001F680c", 3), "ab")
         self.assertEqual(mini._u16("\U0001F680"), 2)
+        lone = json.loads('"Claude \\ud83d"')   # half an emoji, as a server might cut it
+        self.assertEqual(mini._u16(lone), 8)
+        self.assertEqual(mini.clip16(lone, 7), "Claude ")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows command-line parsing")
+    def test_start_command_survives_odd_paths(self):
+        import ctypes
+        from ctypes import wintypes
+        parse = ctypes.windll.shell32.CommandLineToArgvW
+        parse.restype = ctypes.POINTER(wintypes.LPWSTR)
+        for path in (r"C:\Users\D'Angelo\src", "D:\\", r"C:\with space\x"):
+            n = ctypes.c_int()
+            argv = parse(mini.start_command(path), ctypes.byref(n))
+            self.assertEqual(argv[n.value - 1], path)
 
     def test_normalize(self):
         self.assertEqual(mini.normalize("host:8787/api/widget/"), "http://host:8787")

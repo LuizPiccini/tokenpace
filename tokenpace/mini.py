@@ -85,6 +85,7 @@ def parse(body: str) -> list[dict[str, Any]]:
                 pairs.append((str(g.get("label") or g.get("id") or ""), g.get("items")))
     elif isinstance(raw, dict):
         pairs = [(str(k), v) for k, v in raw.items()]
+    pairs = pairs[:MAX_ROWS]   # groups too: each costs drawing time
     groups = []
     for label, items in pairs:
         plans = []
@@ -158,33 +159,44 @@ def fetch(server: str, token: str = "") -> list[dict]:
     if token and any(not 33 <= ord(c) <= 126 for c in token):
         raise MiniError("The token contains spaces or unusual characters")
     url = server + "/api/widget"
-    conns: list[Any] = []
+    socks: list[Any] = []
+    timed_out = threading.Event()
+
+    def kill(sock: Any) -> None:
+        for step in (lambda: sock.shutdown(2), sock.close):   # close() also wakes a blocked read on Windows
+            try:
+                step()
+            except OSError:
+                pass
+
+    def watched(base: Any) -> Any:
+        class Conn(base):
+            def connect(self) -> None:
+                super().connect()
+                socks.append(self.sock)   # recorded here because urllib drops h.sock once headers arrive
+                if timed_out.is_set():
+                    kill(self.sock)       # the budget ran out while connecting (slow DNS, many addresses)
+        return Conn
 
     class _Http(urllib.request.HTTPHandler):
         def http_open(self, req: Any) -> Any:
-            return self.do_open(lambda host, **kw: conns.append(http.client.HTTPConnection(host, **kw)) or conns[-1], req)
+            return self.do_open(watched(http.client.HTTPConnection), req)
 
     class _Https(urllib.request.HTTPSHandler):
         def https_open(self, req: Any) -> Any:
-            return self.do_open(lambda host, **kw: conns.append(http.client.HTTPSConnection(host, **kw)) or conns[-1],
-                                req, context=self._context)
+            return self.do_open(watched(http.client.HTTPSConnection), req, context=self._context)
 
     handlers: list[Any] = [_NoRedirect(), _Http(), _Https()]
     if urllib.parse.urlsplit(url).scheme == "http":
         handlers.append(urllib.request.ProxyHandler({}))   # no proxy may see the token in clear text
     opener = urllib.request.build_opener(*handlers)
-    timed_out = threading.Event()
 
     def cut() -> None:
-        # The whole exchange is capped, connecting and headers included: a server that drips
-        # bytes would otherwise keep every per-read timeout alive.
+        # The whole exchange is capped, headers and body included: a server that drips bytes
+        # would otherwise keep every per-read timeout alive.
         timed_out.set()
-        for c in conns:
-            try:
-                if c.sock is not None:
-                    c.sock.shutdown(2)
-            except OSError:
-                pass
+        for sock in list(socks):
+            kill(sock)
 
     timer = threading.Timer(TOTAL_TIMEOUT, cut)
     timer.daemon = True
@@ -208,6 +220,8 @@ def _exchange(opener: Any, url: str, token: str, timed_out: threading.Event) -> 
                 raise MiniError("Server answer too large")
             chunks, total = [], 0
             while True:
+                if timed_out.is_set():
+                    raise MiniError("Server too slow to answer")
                 chunk = resp.read1(16384)
                 if not chunk:
                     break
@@ -495,17 +509,20 @@ class Settings:
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
-def start_command() -> str:
+def start_command(parent: str | None = None) -> str:
+    import site
+    import subprocess
     exe = sys.executable
     w = os.path.join(os.path.dirname(exe), "pythonw.exe")
     py = w if os.path.exists(w) else exe
-    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    import site
+    parent = parent or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     installed = {os.path.normcase(os.path.abspath(p)) for p in site.getsitepackages() + [site.getusersitepackages()]}
-    if os.path.normcase(parent) in installed:
-        return f'"{py}" -m tokenpace mini'
-    # Run from a clone: at logon the working directory isn't the clone, so say where the package is.
-    return f'"{py}" -c "import sys; sys.path.insert(0, r\'{parent}\'); from tokenpace.mini import run; run([])"'
+    if os.path.normcase(os.path.abspath(parent)) in installed:
+        return subprocess.list2cmdline([py, "-m", "tokenpace", "mini"])
+    # Run from a clone: at logon the working directory isn't the clone, so pass where the package is
+    # as an argument (any path quotes safely that way).
+    return subprocess.list2cmdline([py, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                                    "from tokenpace.mini import run; run([])", parent])
 
 
 def starts_with_windows() -> bool:
@@ -669,9 +686,18 @@ class Canvas:
         gp["GdipDeletePath"](path)
 
     def clip_rect(self, x: float, y: float, w: float, h: float) -> None:
+        """Sets the base clip (the panel's visible list) that unclip() returns to."""
+        self.base_clip = (x, y, w, h)
         gp["GdipSetClipRect"](self.g, x, y, w, h, 0)
 
     def unclip(self) -> None:
+        if getattr(self, "base_clip", None):
+            gp["GdipSetClipRect"](self.g, *self.base_clip, 0)
+        else:
+            gp["GdipResetClip"](self.g)
+
+    def unclip_all(self) -> None:
+        self.base_clip = None
         gp["GdipResetClip"](self.g)
 
     def measure(self, text: str, face: str, size: float) -> float:
@@ -748,7 +774,7 @@ LH = 1.33   # line height per font size, as WPF lays out Segoe UI
 
 def _u16(text: str) -> int:
     """Length in UTF-16 code units, which is what Windows counts (emoji take two)."""
-    return len(text.encode("utf-16-le")) // 2
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2   # a lone half-emoji counts as one unit
 
 
 def clip16(text: str, units: int) -> str:
@@ -899,14 +925,15 @@ class View:
                     continue
                 yy += 2 if first else 12
                 first = False
-                c.runs([(g["label"].upper(), Canvas.SEMIBOLD, 11, C["muted"])], ix, yy, 11 * LH, iw)
+                if list_y - 20 < yy < list_y + view_h:
+                    c.runs([(g["label"].upper(), Canvas.SEMIBOLD, 11, C["muted"])], ix, yy, 11 * LH, iw)
                 yy += 11 * LH + 2
                 for p in g["items"]:
                     if yy + ROW_H < list_y or yy > list_y + view_h:
                         yy += ROW_H   # outside the visible list: nothing to draw
                     else:
                         yy = self.draw_row(c, p, ix, yy, iw)
-        c.unclip()
+        c.unclip_all()
         if content_h > view_h:   # thin scroll indicator
             frac = view_h / content_h
             th = max(24.0, view_h * frac)
@@ -1157,7 +1184,7 @@ class Mini:
             import tkinter as tk
         except ImportError:
             MessageBoxW(self.hwnd, "Settings need tkinter, which this Python lacks. Quit Token Pace Mini from "
-                        "its tray icon, then run:\npythonw -m tokenpace mini --server http://host:8787\n"
+                        f"its tray icon, then run:\n\"{sys.executable}\" -m tokenpace mini --server http://host:8787\n"
                         "with the server token, if any, in the TOKENPACE_TOKEN environment variable.",
                         "Token Pace Mini", 0x40)
             return
@@ -1509,4 +1536,5 @@ def run(argv: list[str]) -> int:
         DispatchMessageW(ctypes.byref(msg))
     del mutex
     return 0
+
 
