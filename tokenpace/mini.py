@@ -29,6 +29,7 @@ from typing import Any
 from . import __version__
 
 MAX_BODY = 1024 * 1024
+MAX_ROWS = 50   # per group: more can't be a real list of plans, and each row costs drawing time
 TOTAL_TIMEOUT = 30.0
 WIDTH, PAD, GAP = 340.0, 14.0, 8.0
 POLL_SECONDS, TICK_SECONDS = 120, 30
@@ -46,7 +47,8 @@ def normalize(server: str | None) -> str:
         return ""
     if "://" not in s:
         s = "http://" + s
-    s = s.rstrip("/")
+    scheme, rest = s.split("://", 1)
+    s = scheme.lower() + "://" + rest.rstrip("/")   # a lowercase scheme: fetch() decides the proxy on it
     if s.lower().endswith("/api/widget"):
         s = s[: -len("/api/widget")]
     u = urllib.parse.urlsplit(s)
@@ -86,7 +88,7 @@ def parse(body: str) -> list[dict[str, Any]]:
     groups = []
     for label, items in pairs:
         plans = []
-        for i, r in enumerate(items if isinstance(items, list) else []):
+        for i, r in enumerate((items if isinstance(items, list) else [])[:MAX_ROWS]):
             if not isinstance(r, dict):
                 continue
             elapsed = _num(r, "elapsed_percent", None)
@@ -156,14 +158,47 @@ def fetch(server: str, token: str = "") -> list[dict]:
     if token and any(not 33 <= ord(c) <= 126 for c in token):
         raise MiniError("The token contains spaces or unusual characters")
     url = server + "/api/widget"
-    handlers: list[Any] = [_NoRedirect()]
-    if url.startswith("http://"):
+    conns: list[Any] = []
+
+    class _Http(urllib.request.HTTPHandler):
+        def http_open(self, req: Any) -> Any:
+            return self.do_open(lambda host, **kw: conns.append(http.client.HTTPConnection(host, **kw)) or conns[-1], req)
+
+    class _Https(urllib.request.HTTPSHandler):
+        def https_open(self, req: Any) -> Any:
+            return self.do_open(lambda host, **kw: conns.append(http.client.HTTPSConnection(host, **kw)) or conns[-1],
+                                req, context=self._context)
+
+    handlers: list[Any] = [_NoRedirect(), _Http(), _Https()]
+    if urllib.parse.urlsplit(url).scheme == "http":
         handlers.append(urllib.request.ProxyHandler({}))   # no proxy may see the token in clear text
     opener = urllib.request.build_opener(*handlers)
+    timed_out = threading.Event()
+
+    def cut() -> None:
+        # The whole exchange is capped, connecting and headers included: a server that drips
+        # bytes would otherwise keep every per-read timeout alive.
+        timed_out.set()
+        for c in conns:
+            try:
+                if c.sock is not None:
+                    c.sock.shutdown(2)
+            except OSError:
+                pass
+
+    timer = threading.Timer(TOTAL_TIMEOUT, cut)
+    timer.daemon = True
+    timer.start()
+    try:
+        return _exchange(opener, url, token, timed_out)
+    finally:
+        timer.cancel()
+
+
+def _exchange(opener: Any, url: str, token: str, timed_out: threading.Event) -> list[dict]:
     headers = {"Accept": "application/json", "User-Agent": f"tokenpace-mini/{__version__}"}
     if token:
         headers["Authorization"] = "Bearer " + token
-    deadline = time.monotonic() + TOTAL_TIMEOUT
     try:
         with opener.open(urllib.request.Request(url, headers=headers), timeout=15) as resp:
             if resp.status != 200:
@@ -173,8 +208,6 @@ def fetch(server: str, token: str = "") -> list[dict]:
                 raise MiniError("Server answer too large")
             chunks, total = [], 0
             while True:
-                if time.monotonic() > deadline:
-                    raise MiniError("Server too slow to answer")
                 chunk = resp.read1(16384)
                 if not chunk:
                     break
@@ -192,7 +225,11 @@ def fetch(server: str, token: str = "") -> list[dict]:
     except MiniError:
         raise
     except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+        if timed_out.is_set():
+            raise MiniError("Server too slow to answer") from None
         raise MiniError("Can't reach the server") from None
+    if timed_out.is_set():
+        raise MiniError("Server too slow to answer")
     return parse(b"".join(chunks).decode("utf-8", "replace"))
 
 
@@ -361,6 +398,7 @@ if sys.platform == "win32":
         "GdipDeleteFont": (P,),
         "GdipStringFormatGetGenericTypographic": (PP,),
         "GdipCloneStringFormat": (P, PP),
+        "GdipDeleteStringFormat": (P,),
         "GdipSetStringFormatFlags": (P, ctypes.c_int),
         "GdipSetStringFormatTrimming": (P, ctypes.c_int),
         "GdipDrawString": (P, W.LPCWSTR, ctypes.c_int, P, ctypes.POINTER(RectF), P, P),
@@ -460,15 +498,21 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 def start_command() -> str:
     exe = sys.executable
     w = os.path.join(os.path.dirname(exe), "pythonw.exe")
-    return f'"{w if os.path.exists(w) else exe}" -m tokenpace mini'
+    py = w if os.path.exists(w) else exe
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    import site
+    installed = {os.path.normcase(os.path.abspath(p)) for p in site.getsitepackages() + [site.getusersitepackages()]}
+    if os.path.normcase(parent) in installed:
+        return f'"{py}" -m tokenpace mini'
+    # Run from a clone: at logon the working directory isn't the clone, so say where the package is.
+    return f'"{py}" -c "import sys; sys.path.insert(0, r\'{parent}\'); from tokenpace.mini import run; run([])"'
 
 
 def starts_with_windows() -> bool:
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
-            winreg.QueryValueEx(k, "TokenPaceMini")
-            return True
+            return winreg.QueryValueEx(k, "TokenPaceMini")[0] == start_command()   # not an older .exe entry
     except OSError:
         return False
 
@@ -536,6 +580,8 @@ class Canvas:
         for font, family, _, _ in self._fonts.values():
             gp["GdipDeleteFont"](font)
             gp["GdipDeleteFontFamily"](family)
+        gp["GdipDeleteStringFormat"](self.fmt)
+        gp["GdipDeleteStringFormat"](self.ellipsis)
         gp["GdipDeleteGraphics"](self.g)
 
     def font(self, face: str, size: float) -> tuple:
@@ -631,7 +677,7 @@ class Canvas:
     def measure(self, text: str, face: str, size: float) -> float:
         font = self.font(face, size)[0]
         box, out = RectF(0, 0, 10000, 1000), RectF()
-        gp["GdipMeasureString"](self.g, text, len(text), font, ctypes.byref(box), self.fmt, ctypes.byref(out), None, None)
+        gp["GdipMeasureString"](self.g, text, _u16(text), font, ctypes.byref(box), self.fmt, ctypes.byref(out), None, None)
         return out.Width
 
     def runs(self, runs: list[tuple[str, str, float, int]], x: float, top: float, height: float,
@@ -653,7 +699,7 @@ class Canvas:
                 break
             b = self._brush(color)
             box = RectF(x + used, base - a, room if w > room else w + 2, a + self.font(face, size)[3] + 2)
-            gp["GdipDrawString"](self.g, text, len(text), font, ctypes.byref(box), self.ellipsis if w > room else self.fmt, b)
+            gp["GdipDrawString"](self.g, text, _u16(text), font, ctypes.byref(box), self.ellipsis if w > room else self.fmt, b)
             gp["GdipDeleteBrush"](b)
             used += min(w, room)
         return used
@@ -700,6 +746,24 @@ class Canvas:
 LH = 1.33   # line height per font size, as WPF lays out Segoe UI
 
 
+def _u16(text: str) -> int:
+    """Length in UTF-16 code units, which is what Windows counts (emoji take two)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def clip16(text: str, units: int) -> str:
+    out = []
+    for ch in text:
+        units -= _u16(ch)
+        if units < 0:
+            break
+        out.append(ch)
+    return "".join(out)
+
+
+ROW_H = 6 + 15 * LH + 2 + 12 + 1 + 11.5 * LH + 4
+
+
 class View:
     """Layout and drawing of the pill and its panel, in 1/96-inch units. Fills self.hits with
     (x, y, w, h, action, cursor) for the window to dispatch clicks."""
@@ -731,7 +795,7 @@ class View:
                 continue
             h += (2 if first else 12) + 11 * LH + 2
             first = False
-            h += len(g["items"]) * (6 + 15 * LH + 2 + 12 + 1 + 11.5 * LH + 4)
+            h += len(g["items"]) * ROW_H
         return h
 
     def panel_h(self) -> float:
@@ -838,7 +902,10 @@ class View:
                 c.runs([(g["label"].upper(), Canvas.SEMIBOLD, 11, C["muted"])], ix, yy, 11 * LH, iw)
                 yy += 11 * LH + 2
                 for p in g["items"]:
-                    yy = self.draw_row(c, p, ix, yy, iw)
+                    if yy + ROW_H < list_y or yy > list_y + view_h:
+                        yy += ROW_H   # outside the visible list: nothing to draw
+                    else:
+                        yy = self.draw_row(c, p, ix, yy, iw)
         c.unclip()
         if content_h > view_h:   # thin scroll indicator
             frac = view_h / content_h
@@ -904,6 +971,7 @@ WM_DESTROY, WM_TIMER, WM_SETCURSOR, WM_MOUSEMOVE = 0x0002, 0x0113, 0x0020, 0x020
 WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_MOUSEWHEEL = 0x0201, 0x0202, 0x0205, 0x020A
 WM_MOUSEACTIVATE, WM_DISPLAYCHANGE, WM_SETTINGCHANGE, WM_APP = 0x0021, 0x007E, 0x001A, 0x8000
 WM_TRAY, WM_DATA = WM_APP + 1, WM_APP + 2
+WM_CAPTURECHANGED = 0x0215
 
 
 class Mini:
@@ -921,6 +989,8 @@ class Mini:
         self.size_px = (0, 0)
         self.hicon = None
         self.visible = True
+        self.dialog: Any = None
+        self.quit_after_dialog = False
         gdiplus_start()
         dc = GetDC(None)
         self.scale = GetDeviceCaps(dc, 88) / 96.0   # LOGPIXELSX; the process is system-DPI aware
@@ -1036,7 +1106,8 @@ class Mini:
             except Exception:   # noqa: BLE001 - never let a reading crash the app
                 err = "Reading failed"
             with self.lock:
-                self.result = (gen, groups, err)
+                if self.result is None or self.result[0] <= gen:   # an older fetch never overwrites a newer one
+                    self.result = (gen, groups, err)
             PostMessageW(self.hwnd, WM_DATA, 0, 0)
 
         threading.Thread(target=work, daemon=True).start()
@@ -1085,11 +1156,18 @@ class Mini:
         try:
             import tkinter as tk
         except ImportError:
-            MessageBoxW(self.hwnd, "Settings need tkinter, which this Python lacks. Run:\n"
-                        "tokenpace mini --server http://host:8787", "Token Pace Mini", 0x40)
+            MessageBoxW(self.hwnd, "Settings need tkinter, which this Python lacks. Quit Token Pace Mini from "
+                        "its tray icon, then run:\npythonw -m tokenpace mini --server http://host:8787\n"
+                        "with the server token, if any, in the TOKENPACE_TOKEN environment variable.",
+                        "Token Pace Mini", 0x40)
+            return
+        if self.dialog is not None:
+            self.dialog.lift()
+            self.dialog.focus_force()
             return
         s = self.settings
         root = tk.Tk()
+        self.dialog = root
         root.title("Token Pace Mini")
         root.attributes("-topmost", True)
         root.resizable(False, False)
@@ -1141,6 +1219,8 @@ class Mini:
             self.server_changed()
 
         def submit() -> None:
+            if str(save["state"]) == "disabled":
+                return   # a check is already running
             url, tok = normalize(server.get()), token.get().strip()
             if not url:
                 msg.config(text="Enter an http:// or https:// address.")
@@ -1166,7 +1246,12 @@ class Mini:
         root.protocol("WM_DELETE_WINDOW", close)
         root.bind("<Return>", lambda e: submit())
         root.bind("<Escape>", lambda e: close())
-        root.mainloop()   # Tk's loop also dispatches this window's messages
+        try:
+            root.mainloop()   # Tk's loop also dispatches this window's messages
+        finally:
+            self.dialog = None
+        if self.quit_after_dialog:
+            self.quit()   # Quit was chosen while the dialog was open: finish it outside Tk's loop
 
     def show_menu(self) -> None:
         items = [(1, "Hide pill" if self.visible else "Show pill"), (2, "Show all plans"), (3, "Reset position"),
@@ -1220,6 +1305,15 @@ class Mini:
             self.render()
 
     def quit(self) -> None:
+        if self.dialog is not None:
+            # Inside Tk's loop: close the dialog and let open_settings() finish the quit once the
+            # loop returns. Posting WM_QUIT under Tk makes it spin instead of returning.
+            self.quit_after_dialog = True
+            try:
+                self.dialog.destroy()
+            except Exception:   # noqa: BLE001
+                pass
+            return
         self.settings.save()
         nid = self.nid()
         Shell_NotifyIconW(2, ctypes.byref(nid))   # delete
@@ -1260,12 +1354,13 @@ class Mini:
                 c.rect(3 + min(u, e), 6.3, abs(e - u), 3.4, argb(C["slack"] if e >= u else C["ahead"]))
                 c.rect(3 + e - 0.6, 4.7, 1.2, 6.6, argb("#FFFFFF"))
         c.close()
+        n = self.nid()
+        n.uFlags, n.uCallbackMessage = 0x1 | 0x2 | 0x4, WM_TRAY
+        n.szTip = clip16(tip, 127)
         icon = ctypes.c_void_p()
         gp["GdipCreateHICONFromBitmap"](bmp, ctypes.byref(icon))
         gp["GdipDisposeImage"](bmp)
-        n = self.nid()
-        n.uFlags, n.uCallbackMessage, n.hIcon = 0x1 | 0x2 | 0x4, WM_TRAY, icon
-        n.szTip = tip[:127]
+        n.hIcon = icon
         Shell_NotifyIconW(1, ctypes.byref(n))   # modify
         if self.hicon:
             DestroyIcon(self.hicon)
@@ -1278,6 +1373,15 @@ class Mini:
             if hx <= x <= hx + hw and hy <= y <= hy + hh:
                 return action, cursor
         return None
+
+    def end_drag(self) -> None:
+        self.down = None
+        if self.dragging:
+            self.dragging = False
+            self.settings.left = self.win_px[0] / self.scale + PAD
+            self.settings.top = self.win_px[1] / self.scale + self.view.pill_y()
+            self.settings.save()
+            self.render()   # the panel may now open on the other side
 
     def wndproc(self, hwnd: Any, msg: int, wp: int, lp: int) -> int:
         try:
@@ -1303,7 +1407,10 @@ class Mini:
                 self.down = (pt.x, pt.y, self.win_px, h[0])
                 SetCapture(hwnd)
             return 0
-        if msg == WM_MOUSEMOVE and self.down:
+        if msg == WM_CAPTURECHANGED and self.down:
+            self.end_drag()   # capture lost (menu, lock screen, UAC): stop following the cursor
+            return 0
+        if msg == WM_MOUSEMOVE and self.down and wp & 1:
             pt = W.POINT()
             GetCursorPos(ctypes.byref(pt))
             x0, y0, (wx, wy), action = self.down
@@ -1314,17 +1421,13 @@ class Mini:
                 self.win_px = (nx, ny)
             return 0
         if msg == WM_LBUTTONUP and self.down:
-            ReleaseCapture()
             pt = W.POINT()
             GetCursorPos(ctypes.byref(pt))
             _, _, _, action = self.down
-            self.down = None
-            if self.dragging:
-                self.dragging = False
-                self.settings.left = self.win_px[0] / self.scale + PAD
-                self.settings.top = self.win_px[1] / self.scale + self.view.pill_y()
-                self.settings.save()
-                self.render()   # the panel may now open on the other side
+            was_dragging = self.dragging
+            self.end_drag()   # clears the state first: ReleaseCapture sends WM_CAPTURECHANGED
+            ReleaseCapture()
+            if was_dragging:
                 return 0
             h = self.hit(pt.x, pt.y)
             if h and h[0] == action:
@@ -1395,6 +1498,7 @@ def run(argv: list[str]) -> int:
     settings = Settings.load()
     if args.server:
         settings.server = normalize(args.server)
+        settings.token = os.environ.get("TOKENPACE_TOKEN", settings.token)
         settings.save()
     app = Mini(settings)
     if not settings.server:
@@ -1405,3 +1509,4 @@ def run(argv: list[str]) -> int:
         DispatchMessageW(ctypes.byref(msg))
     del mutex
     return 0
+

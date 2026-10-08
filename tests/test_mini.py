@@ -54,6 +54,24 @@ class Hostile(BaseHTTPRequestHandler):
             self.send_response(401)
             self.end_headers()
             return
+        if case == "dripheaders":
+            try:
+                self.wfile.write(b"HTTP/1.1 200 OK\r\n")
+                for _ in range(40):
+                    self.wfile.write(b"X-Slow: 1\r\n")
+                    self.wfile.flush()
+                    time.sleep(0.2)
+            except OSError:
+                pass
+            self.close_connection = True
+            return
+        if case == "many":
+            body = json.dumps({"groups": [{"label": "P", "items": [{}] * 5000}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = json.dumps({"groups": [{"label": "Personal", "items": [row()]}]}).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
@@ -93,6 +111,40 @@ class FetchTest(unittest.TestCase):
         with self.assertRaisesRegex(mini.MiniError, "reach"):
             mini.fetch("http://127.0.0.1:9")
 
+    def test_total_timeout_covers_headers(self):
+        start = time.monotonic()
+        with mock.patch.object(mini, "TOTAL_TIMEOUT", 1.0), self.assertRaisesRegex(mini.MiniError, "too slow"):
+            mini.fetch(self.base + "/dripheaders")
+        self.assertLess(time.monotonic() - start, 4)
+
+    def test_rows_are_capped(self):
+        self.assertEqual(len(mini.fetch(self.base + "/many")[0]["items"]), mini.MAX_ROWS)
+
+    def test_http_in_capitals_bypasses_the_proxy(self):
+        hits = []
+
+        class Proxy(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                hits.append(self.headers.get("Authorization"))
+                self.send_response(502)
+                self.end_headers()
+
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        try:
+            env = {"http_proxy": "http://127.0.0.1:%d" % proxy.server_port, "no_proxy": ""}
+            with mock.patch.dict("os.environ", env):
+                server = mini.normalize(self.base.replace("http://", "HTTP://") + "/ok")
+                self.assertTrue(server.startswith("http://"))
+                mini.fetch(server, "secret")
+        finally:
+            proxy.shutdown()
+            proxy.server_close()
+        self.assertEqual(hits, [])
+
 
 class ParseTest(unittest.TestCase):
     def test_both_feed_shapes(self):
@@ -118,6 +170,8 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(mini.pace_text(p[1]), "used up")
         self.assertEqual(mini.when_text(p[1], now=1000), "frees in 2h 00m")
         self.assertIsNone(mini.top_plan([{"label": "P", "items": []}]))
+        self.assertEqual(mini.clip16("ab\U0001F680c", 3), "ab")
+        self.assertEqual(mini._u16("\U0001F680"), 2)
 
     def test_normalize(self):
         self.assertEqual(mini.normalize("host:8787/api/widget/"), "http://host:8787")
