@@ -24,4 +24,3 @@ android/build/
 android/local.properties
 *.jks
 *.keystore
-windows/build/

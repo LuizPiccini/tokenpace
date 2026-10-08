@@ -5,8 +5,8 @@ Python does, including PCs with Smart App Control, which blocks unsigned .exe fi
     pythonw -m tokenpace mini                  # no console window
     tokenpace mini --snapshot out.png --server http://localhost:8787 --expanded
 
-It reads /api/widget like the Android widget and shares its settings file with the .exe
-build (%APPDATA%\TokenPace\mini.json, token encrypted with Windows DPAPI).
+It reads /api/widget like the Android widget and keeps its settings in
+%APPDATA%\TokenPace\mini.json, with the token encrypted by Windows DPAPI.
 """
 from __future__ import annotations
 
@@ -467,7 +467,7 @@ def settings_path() -> str:
 
 
 class Settings:
-    """Shared with the .exe build: same file, same fields, positions in 1/96-inch units."""
+    """%APPDATA%\TokenPace\mini.json; positions in 1/96-inch units."""
 
     def __init__(self) -> None:
         self.server, self.token = "", ""
@@ -670,7 +670,7 @@ class Canvas:
     def hatch(self, x: float, y: float, w: float, h: float, hex_: str) -> None:
         if w <= 0:
             return
-        # Hard-edged stripes from a repeating gradient, as the .exe draws them (3.5-unit period).
+        # Hard-edged stripes from a repeating gradient (3.5-unit period), as the page draws them.
         b = ctypes.c_void_p()
         gp["GdipCreateLineBrush"](ctypes.byref(PointF(0, 0)), ctypes.byref(PointF(3.5, 3.5)), argb(hex_), argb(hex_, 80),
                                   0, ctypes.byref(b))   # WrapModeTile
@@ -1038,7 +1038,7 @@ class Mini:
         ShowWindow(self.hwnd, 4)   # show without activating
         self.refresh()
 
-    # --- geometry (pill position is in 1/96-inch units, like the .exe's settings)
+    # --- geometry (pill position is in 1/96-inch units)
     def work_area(self, left: float, top: float) -> tuple[float, float, float, float]:
         pt = W.POINT(int(round((left + 30) * self.scale)), int(round((top + 20) * self.scale)))
         mon = MonitorFromPoint(pt, 2)   # nearest
@@ -1519,7 +1519,7 @@ def run(argv: list[str]) -> int:
             view.error = str(exc)
         render_png(view, args.snapshot, backdrop=args.backdrop)
         return 0 if view.error is None else 2
-    mutex = CreateMutexW(None, False, "Local\\TokenPaceMini")   # shared with the .exe build
+    mutex = CreateMutexW(None, False, "Local\\TokenPaceMini")   # one instance per Windows session
     if ctypes.get_last_error() == 183:
         return 0   # already running: its tray icon is there
     settings = Settings.load()
@@ -1536,5 +1536,4 @@ def run(argv: list[str]) -> int:
         DispatchMessageW(ctypes.byref(msg))
     del mutex
     return 0
-
 

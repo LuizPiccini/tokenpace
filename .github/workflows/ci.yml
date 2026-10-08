@@ -40,25 +40,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build the mini window
-        shell: pwsh
-        run: powershell -NoProfile -File windows/build.ps1
-      - name: Render it against the demo server
+      - name: Render the mini window against the demo server
         shell: pwsh
         run: |
           $srv = Start-Process python -ArgumentList '-m','tokenpace','serve','--demo','--port','8799' -PassThru -NoNewWindow
           $up = $false
           for ($i = 0; $i -lt 30 -and -not $up; $i++) { try { $up = (Invoke-RestMethod http://localhost:8799/healthz).ok } catch { Start-Sleep 1 } }
           if (-not $up) { throw "demo server did not start" }
-          $p = Start-Process windows/build/tokenpace-mini.exe -ArgumentList '--snapshot','mini.png','--server','http://localhost:8799','--expanded' -Wait -PassThru
-          python -m tokenpace mini --snapshot mini-py.png --server http://localhost:8799 --expanded
-          if ($LASTEXITCODE -ne 0 -or (Get-Item mini-py.png).Length -lt 10000) { throw "python mini snapshot failed" }
+          python -m tokenpace mini --snapshot mini.png --server http://localhost:8799 --expanded
+          $code = $LASTEXITCODE
           Stop-Process -Id $srv.Id
-          if ($p.ExitCode -ne 0 -or -not (Test-Path mini.png) -or (Get-Item mini.png).Length -lt 10000) { throw "snapshot failed" }
+          if ($code -ne 0 -or (Get-Item mini.png).Length -lt 10000) { throw "mini snapshot failed" }
       - uses: actions/upload-artifact@v4
         with:
           name: tokenpace-mini
-          path: |
-            windows/build/tokenpace-mini.exe
-            mini.png
-            mini-py.png
+          path: mini.png
