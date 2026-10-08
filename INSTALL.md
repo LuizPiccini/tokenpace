@@ -183,12 +183,11 @@ The phone has to reach this machine privately. With Tailscale installed on both:
 
 ## 7b. Windows mini window (optional, ask first)
 
-On Windows, `tokenpace-mini.exe` from the
-[latest release](https://github.com/LuizPiccini/tokenpace/releases/latest) shows the
-ranking as a small floating pill above the taskbar, plus a tray icon. It needs nothing
-installed. The person runs it and enters the server address (and token, if set) in the
-settings window it opens. If Windows reports that Smart App Control blocked it, tell
-the person: the exe is not code-signed yet, and that setting allows no exceptions.
+On Windows, `tokenpace mini` shows the ranking as a small floating pill above the taskbar,
+plus a tray icon. Start it with `pythonw -m tokenpace mini`, using the Python Token Pace was
+installed into (for pipx, the `pythonw.exe` in its tokenpace environment). It opens a
+settings window where the person enters the server address and token; do not type the
+token for them. "Start with Windows" in its tray menu makes it start at logon.
 
 ## 8. Report back
 

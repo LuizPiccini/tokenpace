@@ -51,6 +51,8 @@ jobs:
           for ($i = 0; $i -lt 30 -and -not $up; $i++) { try { $up = (Invoke-RestMethod http://localhost:8799/healthz).ok } catch { Start-Sleep 1 } }
           if (-not $up) { throw "demo server did not start" }
           $p = Start-Process windows/build/tokenpace-mini.exe -ArgumentList '--snapshot','mini.png','--server','http://localhost:8799','--expanded' -Wait -PassThru
+          python -m tokenpace mini --snapshot mini-py.png --server http://localhost:8799 --expanded
+          if ($LASTEXITCODE -ne 0 -or (Get-Item mini-py.png).Length -lt 10000) { throw "python mini snapshot failed" }
           Stop-Process -Id $srv.Id
           if ($p.ExitCode -ne 0 -or -not (Test-Path mini.png) -or (Get-Item mini.png).Length -lt 10000) { throw "snapshot failed" }
       - uses: actions/upload-artifact@v4
@@ -59,3 +61,4 @@ jobs:
           path: |
             windows/build/tokenpace-mini.exe
             mini.png
+            mini-py.png

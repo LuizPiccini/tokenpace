@@ -4,7 +4,7 @@
 your AI plans (ChatGPT/Codex, Claude, OpenRouter's free tier, anything you type in by
 hand) and ranks them by how much quota you are about to leave on the table before each
 reset. It is a small self-hosted page, a JSON API and an Android home-screen widget.
-On Windows there is also a floating mini window with a tray icon.
+On Windows there is also a floating mini window with a tray icon (`tokenpace mini`).
 
 ![The tokenpace page in demo mode](docs/screenshot.png)
 
@@ -156,26 +156,24 @@ appear in the widget when they are PNG, JPEG or WebP.
 
 ## Windows mini window
 
-`tokenpace-mini.exe` keeps the answer on screen: a small pill just above the taskbar with
-the plan to use first, its needed pace and reset, and the same pace bar as the page.
-Click it to see every plan; drag it anywhere. A tray icon by the clock draws the top
-plan's bar and opens a menu (refresh, open the page, settings, start with Windows,
-reset position, quit). It reads `/api/widget` like the Android widget.
+`tokenpace mini` keeps the answer on screen: a small pill just above the taskbar with the
+plan to use first, its needed pace and reset, and the same pace bar as the page. Click it
+to see every plan; drag it anywhere. A tray icon by the clock draws the top plan's bar and
+opens a menu (refresh, open the page, settings, start with Windows, reset position, quit).
+It reads `/api/widget` like the Android widget.
 
 <img src="docs/windows-mini.png" alt="The Windows mini window, expanded" width="340">
 
-Download it from the [latest release](https://github.com/LuizPiccini/tokenpace/releases/latest),
-run it, and enter the server address (and token, if set). It is a single file with nothing
-to install, and stores its settings in `%APPDATA%\TokenPace\mini.json` with the token
-encrypted for your Windows user.
+```powershell
+pythonw -m tokenpace mini        # no console window
+```
 
-The exe is not code-signed yet. Windows SmartScreen will ask for confirmation the first
-time ("More info", then "Run anyway"), and PCs with **Smart App Control** turned on block
-it outright, with no exception allowed.
-
-To build it yourself, run `powershell -File windows/build.ps1`. It uses the C# compiler
-and WPF that ship with Windows 10 and 11, so no SDK is needed. A copy you build yourself
-is still unsigned.
+It is part of the Python package: no extra download, only the standard library. On first
+run it asks for the server address (and token, if set) and keeps them in
+`%APPDATA%\TokenPace\mini.json`, with the token encrypted for your Windows user. It runs
+on PCs with Smart App Control, which blocks unsigned programs, because Python itself is
+signed. If Windows blocks the `tokenpace` command that pip or pipx created, use the
+`pythonw -m tokenpace mini` form above with the Python it was installed into.
 
 ## Development
 
