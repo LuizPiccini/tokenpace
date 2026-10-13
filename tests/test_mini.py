@@ -169,6 +169,22 @@ class ParseTest(unittest.TestCase):
             with self.assertRaises(mini.MiniError):
                 mini.parse(bad)
 
+    def test_focus_group(self):
+        listed = mini.parse(json.dumps({"groups": [
+            {"id": "personal", "label": "Personal", "items": [row(name="Claude")]},
+            {"id": "work", "label": "Tela", "items": [row(name="ChatGPT", level="save"),
+                                                       row(name="Claude", rank=2, level="use")]}]}))
+        self.assertEqual(mini.top_plan(listed)["name"], "Claude")
+        self.assertEqual(mini.top_plan(listed)["rank"], 1)            # no focus: the first group
+        self.assertEqual(mini.top_plan(listed, "tela")["rank"], 2)    # by label, any case
+        self.assertEqual(mini.top_plan(listed, " WORK ")["rank"], 2)  # by id
+        self.assertEqual([g["label"] for g in mini.ordered(listed, "Tela")], ["Tela", "Personal"])
+        self.assertIs(mini.ordered(listed, "Nowhere"), listed)       # unknown group: the server's order
+        self.assertEqual(mini.top_plan(listed, "Nowhere")["rank"], 1)
+        old = mini.parse(json.dumps({"groups": {"Personal": [row()], "Tela": []}}))
+        self.assertEqual(old[1]["id"], "Tela")
+        self.assertIsNone(mini.top_plan(old, "Tela"))   # the focus group alone counts, even when empty
+
     def test_text(self):
         p = mini.parse(json.dumps({"groups": [{"label": "P", "items": [row(need=120), row(level="blocked", released_epoch=1000 + 7200)]}]}))[0]["items"]
         self.assertEqual(mini.pace_text(p[0]), "99×+")

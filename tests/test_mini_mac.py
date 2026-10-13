@@ -73,13 +73,16 @@ class MacMiniTest(unittest.TestCase):
                 mock.patch.object(self.m, "keychain_set") as put:
             s = self.m.MacSettings()
             s.server, s.token, s.left, s.top, s.expanded = "http://h:8787", "secret", 10.4, 20.6, True
+            s.focus = "Tela"
             s.save()
             put.assert_called_once_with("secret")
             with open(os.path.join(d, "mini.json"), encoding="utf-8") as f:
-                self.assertEqual(json.load(f), {"server": "http://h:8787", "expanded": True, "left": 10, "top": 21})
+                self.assertEqual(json.load(f), {"server": "http://h:8787", "expanded": True, "focus": "Tela",
+                                                "left": 10, "top": 21})
             t = self.m.MacSettings.load()
             get.assert_called_once()
-            self.assertEqual((t.server, t.token, t.left, t.top, t.expanded), ("http://h:8787", "secret", 10, 21, True))
+            self.assertEqual((t.server, t.token, t.left, t.top, t.expanded, t.focus),
+                             ("http://h:8787", "secret", 10, 21, True, "Tela"))
             t.save()
             put.assert_called_once()   # an unchanged token is not written again
 
