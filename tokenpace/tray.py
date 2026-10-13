@@ -89,8 +89,10 @@ def run(url: str, token: str | None = None, show: bool = False) -> int:
     window.set_type_hint(Gdk.WindowTypeHint.UTILITY)
     window.set_resizable(False)
     window.set_default_size(WIDTH, HEIGHT)
-    # AyatanaAppIndicator3 reports no panel position, so open under the pointer (X11).
-    window.set_position(Gtk.WindowPosition.MOUSE)
+    # AyatanaAppIndicator3 reports no panel position, so on X11 open under the pointer.
+    # Wayland compositors place windows themselves.
+    if "Wayland" not in Gdk.Display.get_default().__gtype__.name:
+        window.set_position(Gtk.WindowPosition.MOUSE)
     window.add(web)
     window.connect("focus-out-event", lambda *_: (window.hide(), True)[1])
     window.connect("delete-event", lambda *_: (window.hide(), True)[1])

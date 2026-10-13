@@ -176,7 +176,9 @@ sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappi
 ```
 
 `--show` opens the popover on start, which is what you want under login autostart; without
-it you get only the icon. Start the server separately. GNOME needs an AppIndicator
+it you get only the icon. On X11 the popover opens under the pointer; on Wayland the
+compositor decides where it appears. Escape or clicking another window closes it. Start the
+server separately. GNOME needs an AppIndicator
 extension (Ubuntu ships one); KDE and other StatusNotifier desktops use the same client.
 For login startup, copy `contrib/linux/tokenpace-tray.desktop` to `~/.config/autostart/`
 and replace both absolute paths in its `Exec` line. The GTK and WebKit bindings are
