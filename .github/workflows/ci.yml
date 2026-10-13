@@ -74,3 +74,23 @@ jobs:
         with:
           name: tokenpace-mini-macos
           path: mini.png
+
+  linux-tray:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK, WebKit, AppIndicator and test displays
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+            gir1.2-ayatanaappindicator3-0.1 xvfb openbox xdotool x11-utils imagemagick weston dbus-x11
+      - name: Open, focus and close the tray popover on X11 and Wayland
+        run: bash .github/linux-tray-check.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokenpace-tray-linux
+          path: |
+            tray-*.png
+            tray-*.log
+            weston.log

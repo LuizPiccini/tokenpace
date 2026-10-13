@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Token Pace Tray
-Comment=AI quota and balance summary
+Comment=Which AI subscription to use first
 Exec=/usr/bin/python3 /ABSOLUTE/PATH/tokenpace/contrib/linux/tokenpace-tray.py --config /ABSOLUTE/PATH/config.toml --show
 Icon=view-statistics
 Terminal=false

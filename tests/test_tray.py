@@ -1,5 +1,6 @@
 import unittest
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -7,6 +8,8 @@ from pathlib import Path
 from argparse import Namespace
 from unittest import mock
 from tokenpace.tray import Client, POPOVER_CSS, POPOVER_SCRIPT, trouble
+
+PAGE = Path(__file__).resolve().parents[1] / "tokenpace" / "web" / "index.html"
 
 
 class TrayTest(unittest.TestCase):
@@ -26,6 +29,25 @@ class TrayTest(unittest.TestCase):
         self.assertEqual(hidden, {"header.top", ".topgrid", ".legend", "footer", ".gate", ".err"})
         for kept in (".groups", ".group", ".rec", ".head", ".chip", ".lane"):
             self.assertNotIn(kept, hidden)
+
+    def test_every_popover_selector_exists_in_the_page(self):
+        # A page redesign that renames one of these would silently undo the popover layout.
+        page = PAGE.read_text(encoding="utf-8")
+        selectors = set()
+        for rule in POPOVER_CSS.split("}"):
+            if "{" in rule:
+                selectors.update(s.strip() for s in rule.split("{")[0].split(","))
+        for selector in sorted(selectors):
+            for part in selector.split():
+                tag, *classes = part.split(".")
+                with self.subTest(selector=part):
+                    if tag and classes:
+                        self.assertRegex(page, rf'<{tag}\b[^>]*class="[^"]*\b{re.escape(classes[0])}\b')
+                    elif tag:
+                        self.assertRegex(page, rf"<{tag}[\s>]")
+                    for name in classes:
+                        # Classes built by app.js have rules in the page's stylesheet.
+                        self.assertRegex(page, rf'\.{re.escape(name)}\b|class="[^"]*\b{re.escape(name)}\b')
 
     def test_popover_script_is_valid_javascript_with_the_css_escaped(self):
         self.assertIn(json.dumps(POPOVER_CSS), POPOVER_SCRIPT)

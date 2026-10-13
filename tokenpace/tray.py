@@ -23,8 +23,6 @@ POPOVER_CSS = """
 header.top, .topgrid, .legend, footer, .gate, .err { display: none !important; }
 main { max-width: none !important; padding: 10px 8px 14px !important; }
 .group { padding: 4px 11px 6px !important; }
-table.models { font-size: 11.5px !important; }
-table.models th, table.models td { padding: 3px 6px 3px 0 !important; }
 """
 
 POPOVER_SCRIPT = ("""(function () {
@@ -80,13 +78,22 @@ def run(url: str, token: str | None = None, show: bool = False) -> int:
     web.get_settings().set_enable_developer_extras(False)
     web.load_uri(client.dashboard())
 
-    window = Gtk.Window(type=Gtk.WindowType.POPUP)
+    # A normal undecorated window: desktops give it keyboard focus, so Escape and
+    # clicking elsewhere close it. A POPUP window is override-redirect on X11 and
+    # never receives focus. Wayland compositors choose where it appears.
+    window = Gtk.Window(title="Token Pace")
+    window.set_decorated(False)
+    window.set_skip_taskbar_hint(True)
+    window.set_skip_pager_hint(True)
+    window.set_keep_above(True)
+    window.set_type_hint(Gdk.WindowTypeHint.UTILITY)
     window.set_resizable(False)
     window.set_default_size(WIDTH, HEIGHT)
-    # AyatanaAppIndicator3 reports no panel position, so open under the pointer.
+    # AyatanaAppIndicator3 reports no panel position, so open under the pointer (X11).
     window.set_position(Gtk.WindowPosition.MOUSE)
     window.add(web)
     window.connect("focus-out-event", lambda *_: (window.hide(), True)[1])
+    window.connect("delete-event", lambda *_: (window.hide(), True)[1])
     window.connect("key-press-event",
                    lambda _, ev: (window.hide(), True)[1] if ev.keyval == Gdk.KEY_Escape else False)
 
@@ -97,7 +104,9 @@ def run(url: str, token: str | None = None, show: bool = False) -> int:
             window.hide()
         else:
             window.show_all()
-            window.present()
+            # The menu click's timestamp lets the window take focus despite
+            # focus-stealing prevention.
+            window.present_with_time(Gtk.get_current_event_time())
 
     def refresh():
         if state["busy"]:
