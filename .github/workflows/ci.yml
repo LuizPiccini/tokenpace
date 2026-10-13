@@ -55,3 +55,22 @@ jobs:
         with:
           name: tokenpace-mini
           path: mini.png
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -t . -v
+      - name: Render the mini window against the demo server
+        run: |
+          python -m tokenpace serve --demo --port 8799 &
+          for i in $(seq 30); do curl -fsS http://localhost:8799/healthz && break; sleep 1; done
+          python -m tokenpace mini --snapshot mini.png --server http://localhost:8799 --expanded
+          test "$(stat -f%z mini.png)" -gt 10000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tokenpace-mini-macos
+          path: mini.png

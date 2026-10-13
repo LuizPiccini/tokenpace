@@ -181,7 +181,7 @@ The phone has to reach this machine privately. With Tailscale installed on both:
    downloads it on the phone, allows the install, adds the **Token Pace** widget, and
    enters the server address and token.
 
-## 7b. Windows mini window (optional, ask first)
+## 7b. Mini window on Windows or macOS (optional, ask first)
 
 On Windows, `tokenpace mini` shows the ranking as a small floating pill above the taskbar,
 plus a tray icon. Use the Python Token Pace was installed into (for pipx, the one in its
@@ -190,6 +190,12 @@ the package: `<that python.exe> -m tokenpace mini --help` must print the usage. 
 it with the `pythonw.exe` in the same folder: `<that pythonw.exe> -m tokenpace mini`. It
 opens a settings window where the person enters the server address and token; do not type
 the token for them. "Start with Windows" in its tray menu makes it start at logon.
+
+On macOS, run `tokenpace mini` with the command installed in step 2 (or `<that python> -m
+tokenpace mini`). The pill appears in the top-right corner and a settings dialog asks for the server
+address and token; again, let the person type the token. "Start at login" in the dialog or in
+its menu (the menu bar icon, or a right-click on the pill) makes it start at login; macOS
+then shows a notice that "python" can run in the background, which is expected.
 
 ## 8. Report back
 

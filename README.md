@@ -4,7 +4,7 @@
 your AI plans (ChatGPT/Codex, Claude, OpenRouter's free tier, anything you type in by
 hand) and ranks them by how much quota you are about to leave on the table before each
 reset. It is a small self-hosted page, a JSON API and an Android home-screen widget.
-On Windows there is also a floating mini window with a tray icon (`tokenpace mini`).
+On Windows and macOS there is also a floating mini window (`tokenpace mini`).
 
 ![The tokenpace page in demo mode](docs/screenshot.png)
 
@@ -154,7 +154,7 @@ APK from your own server, set `[android] apk` in the config; the page then links
 it, and the widget announces newer versions when `version_code` goes up. Group logos
 appear in the widget when they are PNG, JPEG or WebP.
 
-## Windows mini window
+## Mini window (Windows and macOS)
 
 `tokenpace mini` keeps the answer on screen: a small pill just above the taskbar with the
 plan to use first, its needed pace and reset, and the same pace bar as the page. Click it
@@ -175,6 +175,29 @@ on PCs with Smart App Control, which blocks unsigned programs, because Python it
 signed. Use the Python Token Pace was installed into: with pipx that is the one in its
 tokenpace environment, not the `pythonw` on your PATH. Since `pythonw` shows no errors,
 check first with `python -m tokenpace mini --help` from the same folder.
+
+### macOS
+
+<img src="docs/macos-mini.png" alt="The macOS mini window, expanded with synthetic demo data" width="368">
+
+```sh
+tokenpace mini                   # or: python3 -m tokenpace mini
+```
+
+The same pill, drawn from the same layout code, starts in the top-right corner under the
+menu bar. It floats above other windows on every Space and never takes focus from the app
+you are in. A menu bar icon draws the top plan's bar; it and a right-click on the pill open
+the same menu (refresh, open the page, settings, start at login, reset position, quit). On a
+MacBook whose menu bar is full, macOS hides icons that don't fit beside the notch: the
+right-click menu still has everything, and a Cmd-drag moves the icon, which it remembers.
+
+It uses only the standard library (ctypes into AppKit, Core Graphics and Core Text), so
+there is nothing to compile or sign; with pipx, the `tokenpace` command already runs the
+right Python. Settings are kept in `~/Library/Application Support/TokenPace/mini.json` and
+the token in your login Keychain. "Start at login" adds
+`~/Library/LaunchAgents/app.tokenpace.mini.plist`; macOS then says "python" can run in
+the background and lists it under Login Items. Tested with Homebrew's Python 3.14 on
+macOS 26.
 
 ## Development
 
