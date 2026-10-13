@@ -154,6 +154,34 @@ APK from your own server, set `[android] apk` in the config; the page then links
 it, and the widget announces newer versions when `version_code` goes up. Group logos
 appear in the widget when they are PNG, JPEG or WebP.
 
+## Linux tray
+
+`tokenpace tray` puts the page in the panel. The icon opens a popover that renders the
+server's own `index.html` in a narrow column, so the panel and the browser always show the
+same thing and a redesign of one is a redesign of both. Only the page chrome that does not
+fit a panel is hidden: the header, the hero tiles, the reset timeline, the legend and the
+footer. The menu has **Show Token Pace**, **Refresh now**, **Open page** and **Quit tray**;
+the icon turns into a warning when a subscription is not `ok` or the server is unreachable.
+
+It reads the existing usage API every 30 seconds and does not collect providers itself.
+Refresh asks the server to collect again. Set `TOKENPACE_TOKEN` for a protected server, or
+let it read the token from your config.
+
+On Ubuntu/Debian:
+
+```sh
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
+# From this checkout, with the distro Python (not pipx's isolated one):
+/usr/bin/python3 contrib/linux/tokenpace-tray.py --config ~/.config/tokenpace/config.toml --show
+```
+
+`--show` opens the popover on start, which is what you want under login autostart; without
+it you get only the icon. Start the server separately. GNOME needs an AppIndicator
+extension (Ubuntu ships one); KDE and other StatusNotifier desktops use the same client.
+For login startup, copy `contrib/linux/tokenpace-tray.desktop` to `~/.config/autostart/`
+and replace both absolute paths in its `Exec` line. The GTK and WebKit bindings are
+optional: the server and every other command still use only the Python standard library.
+
 ## Windows mini window
 
 `tokenpace mini` keeps the answer on screen: a small pill just above the taskbar with the

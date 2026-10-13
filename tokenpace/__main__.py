@@ -162,6 +162,26 @@ def cmd_push(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_tray(args: argparse.Namespace) -> int:
+    from .tray import run
+    # A tray client needs only server settings, including when the server has
+    # newer providers than this client knows about.
+    import tomllib
+    from .config import find_config
+    server = tomllib.loads(find_config(args.config).read_text()).get("server", {}) if args.config or not args.url else {}
+    host = server.get("host", "127.0.0.1")
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
+    elif ":" in host:
+        host = "[" + host + "]"
+    url = args.url or f"http://{host}:{server.get('port', 8787)}"
+    try:
+        return run(url, os.environ.get("TOKENPACE_TOKEN") or server.get("token"), show=args.show)
+    except ValueError as exc:
+        print(f"tokenpace: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["mini"]:   # its own options, parsed by tokenpace.mini
@@ -193,6 +213,12 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--token")
     u.add_argument("--source", help="name shown on the server for these readings (default: push)")
     u.set_defaults(fn=cmd_push)
+    tray = sub.add_parser("tray", help="Linux tray icon showing the page in a panel popover (needs GTK 3, Ayatana, WebKit2)")
+    tray.add_argument("--config")
+    tray.add_argument("--url", help="existing Token Pace server URL; defaults to the configured local server")
+    tray.add_argument("--show", action="store_true", help="open the popover on start (for login autostart)")
+    tray.add_argument("--no-show", dest="show", action="store_false", help="start with only the tray icon (default)")
+    tray.set_defaults(fn=cmd_tray, show=False)
     args = p.parse_args(argv)
     try:
         return args.fn(args)
