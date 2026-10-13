@@ -301,6 +301,33 @@ class App:
         return out
 
 
+class MachineNames:
+    """This machine's names for the Host check. socket.getfqdn() asks reverse DNS, which can take
+    several seconds (a Mac on most networks), so it runs once in the background; until it answers
+    only the plain host name counts. A request never waits for it."""
+
+    def __init__(self) -> None:
+        self.names = frozenset({socket.gethostname().lower()})
+        self._started = False
+        self._lock = threading.Lock()
+
+    def get(self) -> frozenset[str]:
+        with self._lock:
+            if not self._started:
+                self._started = True
+                threading.Thread(target=self._resolve, daemon=True, name="getfqdn").start()
+        return self.names
+
+    def _resolve(self) -> None:
+        try:
+            self.names = self.names | {socket.getfqdn().lower()}
+        except OSError:
+            pass
+
+
+MACHINE_NAMES = MachineNames()
+
+
 class Handler(BaseHTTPRequestHandler):
     app: App
     server_version = f"tokenpace/{__version__}"
@@ -369,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
             return True
         except ValueError:
             pass
-        names = {"localhost", socket.gethostname().lower(), socket.getfqdn().lower(), cfg.host.lower()}
+        names = {"localhost", cfg.host.lower(), *MACHINE_NAMES.get()}
         names.update(h.lower() for h in cfg.allowed_hosts)
         return host in names or host.endswith(".localhost")
 
@@ -515,6 +542,7 @@ class BoundedServer(ThreadingHTTPServer):
 
 def serve(cfg: Config, collect: bool = True) -> None:
     app = App(cfg)
+    MACHINE_NAMES.get()   # start the reverse-DNS lookup now, before the first request
     handler = type("BoundHandler", (Handler,), {"app": app})
     httpd = BoundedServer((cfg.host, cfg.port), handler)
     if collect:
