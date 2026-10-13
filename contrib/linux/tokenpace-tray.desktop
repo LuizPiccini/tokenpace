@@ -2,7 +2,7 @@
 Type=Application
 Name=Token Pace Tray
 Comment=Which AI subscription to use first
-Exec=/usr/bin/python3 /ABSOLUTE/PATH/tokenpace/contrib/linux/tokenpace-tray.py --config /ABSOLUTE/PATH/config.toml --show
+Exec=/ABSOLUTE/PATH/TO/tokenpace tray --show
 Icon=view-statistics
 Terminal=false
 Categories=Utility;
