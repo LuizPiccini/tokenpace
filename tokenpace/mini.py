@@ -579,7 +579,7 @@ class Canvas:
         gp["GdipGetImageGraphicsContext"](bitmap, ctypes.byref(self.g))
         gp["GdipSetSmoothingMode"](self.g, 4)          # antialias
         gp["GdipSetPixelOffsetMode"](self.g, 4)        # half
-        gp["GdipSetTextRenderingHint"](self.g, 4)      # antialias: ClearType can't blend with per-pixel alpha
+        gp["GdipSetTextRenderingHint"](self.g, 3)      # grid-fitted antialias; safe with per-pixel alpha
         gp["GdipGraphicsClear"](self.g, 0)
         gp["GdipScaleWorldTransform"](self.g, scale, scale, 0)
         self._fonts: dict[tuple, tuple] = {}
@@ -787,7 +787,9 @@ def clip16(text: str, units: int) -> str:
     return "".join(out)
 
 
-ROW_H = 6 + 15 * LH + 2 + 12 + 1 + 11.5 * LH + 4
+SECONDARY_SIZE = 12.5
+GROUP_SIZE = 12.0
+ROW_H = 6 + 15 * LH + 2 + 12 + 1 + SECONDARY_SIZE * LH + 4
 
 
 class View:
@@ -819,7 +821,7 @@ class View:
         for g in self.groups:
             if not g["items"]:
                 continue
-            h += (2 if first else 12) + 11 * LH + 2
+            h += (2 if first else 12) + GROUP_SIZE * LH + 2
             first = False
             h += len(g["items"]) * ROW_H
         return h
@@ -828,7 +830,7 @@ class View:
         list_h = self.rows_h()
         if self.max_list_h is not None:
             list_h = min(list_h, self.max_list_h)
-        return 1 + 10 + list_h + 10 + 12 * LH + 12 + 1
+        return 1 + 10 + list_h + 10 + SECONDARY_SIZE * LH + 12 + 1
 
     def panel_chrome_h(self) -> float:
         return self.panel_h() - min(self.rows_h(), self.max_list_h if self.max_list_h is not None else 1e9)
@@ -926,8 +928,8 @@ class View:
                 yy += 2 if first else 12
                 first = False
                 if list_y - 20 < yy < list_y + view_h:
-                    c.runs([(g["label"].upper(), Canvas.SEMIBOLD, 11, C["muted"])], ix, yy, 11 * LH, iw)
-                yy += 11 * LH + 2
+                    c.runs([(g["label"].upper(), Canvas.SEMIBOLD, GROUP_SIZE, C["muted"])], ix, yy, GROUP_SIZE * LH, iw)
+                yy += GROUP_SIZE * LH + 2
                 for p in g["items"]:
                     if yy + ROW_H < list_y or yy > list_y + view_h:
                         yy += ROW_H   # outside the visible list: nothing to draw
@@ -941,12 +943,12 @@ class View:
             c.round_rect(x + WIDTH - 7, ty, 3, th, 1.5, fill=argb("#FFFFFF", 50))
         fy = list_y + view_h + 10
         status = "" if self.groups is None else (self.error or "Updated " + ago(self.at))
-        c.runs([(status or " ", Canvas.REGULAR, 11.5, C["warn"] if self.error else C["muted"])], ix, fy, 12 * LH, iw * 0.55)
+        c.runs([(status or " ", Canvas.REGULAR, SECONDARY_SIZE, C["warn"] if self.error else C["muted"])], ix, fy, SECONDARY_SIZE * LH, iw * 0.55)
         right = ix + iw
         for label, action in (("Open page", "open"), ("Refresh", "refresh")):
-            w = c.measure(label, Canvas.SEMIBOLD, 12)
-            c.runs([(label, Canvas.SEMIBOLD, 12, C["link"])], right - w, fy, 12 * LH, w + 2)
-            self.hits.append((right - w - 4, fy - 2, w + 8, 12 * LH + 4, action, "hand"))
+            w = c.measure(label, Canvas.SEMIBOLD, SECONDARY_SIZE)
+            c.runs([(label, Canvas.SEMIBOLD, SECONDARY_SIZE, C["link"])], right - w, fy, SECONDARY_SIZE * LH, w + 2)
+            self.hits.append((right - w - 4, fy - 2, w + 8, SECONDARY_SIZE * LH + 4, action, "hand"))
             right -= w + 14
 
     def draw_row(self, c: Canvas, p: dict, x: float, y: float, w: float) -> float:
@@ -955,13 +957,13 @@ class View:
         pw = c.measure(pace, Canvas.BOLD, 15)
         c.runs([(pace, Canvas.BOLD, 15, level_ink(p["level"]))], x + w - pw - 1, y, 15 * LH, pw + 2)
         c.runs([(f"{p['rank']}. ", Canvas.REGULAR, 13, C["muted"]), (p["name"], Canvas.SEMIBOLD, 13.5, C["ink"]),
-                ("  " + p["window"], Canvas.REGULAR, 12, C["muted"])], x, y, 15 * LH, w - pw - 8)
+                ("  " + p["window"], Canvas.REGULAR, SECONDARY_SIZE, C["muted"])], x, y, 15 * LH, w - pw - 8)
         y += 15 * LH + 2
         c.pace_bar(x, y + 3, w, 6, p["used"], p["elapsed"])
         y += 12 + 1
-        c.runs([(p["verdict"], Canvas.SEMIBOLD, 11.5, level_ink(p["level"])),
-                (f" · {round(p['used'])}% used · {when_text(p)}", Canvas.REGULAR, 11.5, C["muted"])], x, y, 11.5 * LH, w)
-        return y + 11.5 * LH + 4
+        c.runs([(p["verdict"], Canvas.SEMIBOLD, SECONDARY_SIZE, level_ink(p["level"])),
+                (f" · {round(p['used'])}% used · {when_text(p)}", Canvas.REGULAR, SECONDARY_SIZE, C["muted"])], x, y, SECONDARY_SIZE * LH, w)
+        return y + SECONDARY_SIZE * LH + 4
 
 
 def ago(t: float) -> str:
