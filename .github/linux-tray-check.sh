@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# CI: run the Linux tray against the demo server, on X11 with a window manager and on Wayland.
+# CI: install Token Pace as the README says (pipx on the system Python with system packages)
+# and run the tray against the demo server, on X11 with a window manager and on Wayland.
 set -euo pipefail
 
 URL=http://127.0.0.1:8799
-TRAY=(/usr/bin/python3 contrib/linux/tokenpace-tray.py --url "$URL" --show)
+pipx install --python /usr/bin/python3 --system-site-packages .
+TOKENPACE=$(command -v tokenpace)
+TRAY=("$TOKENPACE" tray --url "$URL" --show)
+/usr/bin/python3 contrib/linux/tokenpace-tray.py --help > /dev/null   # the checkout launcher
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
-/usr/bin/python3 -m tokenpace serve --demo --port 8799 > server.log 2>&1 &
+"$TOKENPACE" serve --demo --port 8799 > server.log 2>&1 &
 pids+=($!)
 for _ in $(seq 30); do curl -fs "$URL/healthz" > /dev/null && break; sleep 1; done
 curl -fs "$URL/healthz" > /dev/null
@@ -38,6 +42,7 @@ tray=$!; pids+=("$tray")
 wait_for_popover "popover did not open on X11"
 sleep 6   # let WebKit render the page
 import -window root tray-x11.png
+import -window "$win" tray-linux.png
 xdotool getwindowgeometry "$win"
 colours=$(convert tray-x11.png -format %k info:)
 echo "screenshot colours: $colours"

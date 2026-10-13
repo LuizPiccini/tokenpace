@@ -31,7 +31,7 @@ Token Pace needs Python 3.11 or newer and nothing else. Run `python3 --version` 
 ## 2. Install
 
 ```sh
-pipx install git+https://github.com/LuizPiccini/tokenpace@v0.4.1
+pipx install git+https://github.com/LuizPiccini/tokenpace@v0.5.0
 tokenpace --version
 tokenpace collect --demo
 ```
@@ -41,7 +41,7 @@ work the same in Windows PowerShell.
 
 If pipx is missing, install it (`python3 -m pip install --user pipx`, then
 `python3 -m pipx ensurepath`) or use `python3 -m pip install --user
-git+https://github.com/LuizPiccini/tokenpace@v0.4.1`. If `tokenpace` is not found afterwards, the
+git+https://github.com/LuizPiccini/tokenpace@v0.5.0`. If `tokenpace` is not found afterwards, the
 install's script directory is not on PATH; run `pipx ensurepath` and open a new shell.
 Note the full path from `command -v tokenpace` (`where tokenpace` on Windows) for step 6.
 
@@ -181,7 +181,7 @@ The phone has to reach this machine privately. With Tailscale installed on both:
    downloads it on the phone, allows the install, adds the **Token Pace** widget, and
    enters the server address and token.
 
-## 7b. Mini window on Windows or macOS (optional, ask first)
+## 7b. Mini window on Windows or macOS, tray on Linux (optional, ask first)
 
 On Windows, `tokenpace mini` shows the ranking as a small floating pill above the taskbar,
 plus a tray icon. Use the Python Token Pace was installed into (for pipx, the one in its
@@ -196,6 +196,17 @@ tokenpace mini`). The pill appears in the top-right corner and a settings dialog
 address and token; again, let the person type the token. "Start at login" in the dialog or in
 its menu (the menu bar icon, or a right-click on the pill) makes it start at login; macOS
 then shows a notice that "python" can run in the background, which is expected.
+
+On Linux, `tokenpace tray` shows the page in a panel popover. It needs the distribution's
+GTK, WebKit and AppIndicator bindings, which are system packages, so ask before installing
+them. On Ubuntu/Debian: `sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+gir1.2-ayatanaappindicator3-0.1`. Then reinstall Token Pace so it can see them:
+`pipx install --force --python /usr/bin/python3 --system-site-packages
+git+https://github.com/LuizPiccini/tokenpace@v0.5.0`. Run `tokenpace tray --show`; it reads
+the server address and token from the config. GNOME needs an AppIndicator extension, which
+Ubuntu ships. For login startup, copy
+[contrib/linux/tokenpace-tray.desktop](https://raw.githubusercontent.com/LuizPiccini/tokenpace/main/contrib/linux/tokenpace-tray.desktop)
+to `~/.config/autostart/` and put the output of `command -v tokenpace` in its `Exec` line.
 
 ## 8. Report back
 

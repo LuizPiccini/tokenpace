@@ -4,7 +4,8 @@
 your AI plans (ChatGPT/Codex, Claude, OpenRouter's free tier, anything you type in by
 hand) and ranks them by how much quota you are about to leave on the table before each
 reset. It is a small self-hosted page, a JSON API and an Android home-screen widget.
-On Windows and macOS there is also a floating mini window (`tokenpace mini`).
+On Windows and macOS there is also a floating mini window (`tokenpace mini`), and on
+Linux a panel tray (`tokenpace tray`).
 
 ![The tokenpace page in demo mode](docs/screenshot.png)
 
@@ -51,7 +52,7 @@ git clone https://github.com/LuizPiccini/tokenpace && cd tokenpace
 python -m tokenpace serve --demo          # synthetic data at http://localhost:8787
 ```
 
-Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.4.1`.
+Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.5.0`.
 
 Then describe your own subscriptions:
 
@@ -167,22 +168,30 @@ It reads the existing usage API every 30 seconds and does not collect providers 
 Refresh asks the server to collect again. Set `TOKENPACE_TOKEN` for a protected server, or
 let it read the token from your config.
 
-On Ubuntu/Debian:
+<img src="docs/linux-tray.png" alt="The Linux tray popover, with synthetic demo data" width="360">
+
+The tray needs your distribution's GTK, WebKit and AppIndicator bindings, so Token Pace has
+to run on the system Python with system packages visible. On Ubuntu/Debian:
 
 ```sh
-sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
-# From this checkout, with the distro Python (not pipx's isolated one):
-/usr/bin/python3 contrib/linux/tokenpace-tray.py --config ~/.config/tokenpace/config.toml --show
+sudo apt install pipx python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
+pipx install --python /usr/bin/python3 --system-site-packages git+https://github.com/LuizPiccini/tokenpace@v0.5.0
+tokenpace tray --show
 ```
+
+If Token Pace is already installed with pipx, add `--force`. The same `tokenpace` command
+runs the server and everything else. From a checkout, `/usr/bin/python3
+contrib/linux/tokenpace-tray.py --show` runs the tray without installing.
 
 `--show` opens the popover on start, which is what you want under login autostart; without
 it you get only the icon. On X11 the popover opens under the pointer; on Wayland the
 compositor decides where it appears. Escape or clicking another window closes it. Start the
-server separately. GNOME needs an AppIndicator
-extension (Ubuntu ships one); KDE and other StatusNotifier desktops use the same client.
-For login startup, copy `contrib/linux/tokenpace-tray.desktop` to `~/.config/autostart/`
-and replace both absolute paths in its `Exec` line. The GTK and WebKit bindings are
-optional: the server and every other command still use only the Python standard library.
+server separately. GNOME needs an AppIndicator extension (Ubuntu ships one); KDE and other
+StatusNotifier desktops use the same client. For login startup, copy
+`contrib/linux/tokenpace-tray.desktop` to `~/.config/autostart/` and put the output of
+`command -v tokenpace` in its `Exec` line. The GTK and WebKit bindings are optional: the
+server and every other command still use only the Python standard library. CI runs the tray
+on Ubuntu 24.04 under X11 and Wayland.
 
 ## Mini window (Windows and macOS)
 
