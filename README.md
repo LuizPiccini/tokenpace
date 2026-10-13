@@ -51,7 +51,7 @@ git clone https://github.com/LuizPiccini/tokenpace && cd tokenpace
 python -m tokenpace serve --demo          # synthetic data at http://localhost:8787
 ```
 
-Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.4.0`.
+Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.4.1`.
 
 Then describe your own subscriptions:
 
@@ -160,7 +160,9 @@ appear in the widget when they are PNG, JPEG or WebP.
 plan to use first, its needed pace and reset, and the same pace bar as the page. Click it
 to see every plan; drag it anywhere. A tray icon by the clock draws the top plan's bar and
 opens a menu (refresh, open the page, settings, start with Windows, reset position, quit).
-It reads `/api/widget` like the Android widget.
+It reads `/api/widget` like the Android widget. On a work laptop you can put your work group
+first: `tokenpace mini --focus Work` (with the mini closed) lists that group on top and only
+its plans can be the one to use first; `--focus ""` goes back to the server's order.
 
 <img src="docs/windows-mini.png" alt="The Windows mini window, expanded with synthetic demo data" width="368">
 
@@ -190,6 +192,7 @@ you are in. A menu bar icon draws the top plan's bar; it and a right-click on th
 the same menu (refresh, open the page, settings, start at login, reset position, quit). On a
 MacBook whose menu bar is full, macOS hides icons that don't fit beside the notch: the
 right-click menu still has everything, and a Cmd-drag moves the icon, which it remembers.
+**Show first** in that menu picks the group that leads, as `--focus` does.
 
 It uses only the standard library (ctypes into AppKit, Core Graphics and Core Text), so
 there is nothing to compile or sign; with pipx, the `tokenpace` command already runs the

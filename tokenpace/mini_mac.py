@@ -29,7 +29,7 @@ from ctypes import POINTER, byref, c_bool, c_char_p, c_double, c_int32, c_long, 
 from typing import Any, Callable
 
 from .mini import C, PAD, POLL_SECONDS, TICK_SECONDS, WIDTH, Canvas, MiniError, View, _num, argb, fetch, \
-    normalize, pace_text, top_plan, when_text
+    focus_group, normalize, pace_text, top_plan, when_text
 
 
 # ---------------------------------------------------------------- frameworks
@@ -577,6 +577,7 @@ class MacSettings:
         self.left: float | None = None
         self.top: float | None = None
         self.expanded = False
+        self.focus = ""   # the "show first" group, e.g. "Work" on a work laptop
         self._stored_token = ""
 
     @staticmethod
@@ -596,6 +597,7 @@ class MacSettings:
             s.left = _num(d, "left", None)
             s.top = _num(d, "top", None)
             s.expanded = d.get("expanded") is True
+            s.focus = d["focus"].strip()[:60] if isinstance(d.get("focus"), str) else ""
         if s.server:
             try:
                 s.token = keychain_get()
@@ -605,7 +607,7 @@ class MacSettings:
         return s
 
     def save(self) -> None:
-        d: dict[str, Any] = {"server": self.server, "expanded": self.expanded}
+        d: dict[str, Any] = {"server": self.server, "expanded": self.expanded, "focus": self.focus}
         if self.left is not None and self.top is not None:
             d["left"], d["top"] = round(self.left), round(self.top)
         path = self.path()
@@ -738,6 +740,7 @@ NS_ALL_SPACES, NS_STATIONARY, NS_IGNORES_CYCLE, NS_FULLSCREEN_AUX = 1 << 0, 1 <<
 NS_CONTROL_KEY = 1 << 18
 NS_ALERT_FIRST_BUTTON = 1000
 MENU_ITEMS = 8
+FOCUS_TAG = 100   # "Show first" entries: 100 is the server's order, 101 and up the groups
 
 
 class MacMini:
@@ -755,6 +758,7 @@ class MacMini:
         self.dialog_open = False
         self.quit_after_dialog = False
         self._icon_key: Any = ()
+        self._focus_choices: list[str] = []
 
         self.app = send(cls("NSApplication"), "sharedApplication")
         send(self.app, "setActivationPolicy:", 1)   # accessory: no Dock icon, no app menu
@@ -886,6 +890,7 @@ class MacMini:
         v.configured = bool(s.server)
         v.server = s.server
         v.expanded = s.expanded
+        v.focus = s.focus
         self.layout()
         w, h = v.size()
         h0, _ = self.screens()
@@ -970,7 +975,7 @@ class MacMini:
     # --- actions
     def act(self, action: str) -> None:
         if action == "toggle":
-            if self.view.groups is not None and top_plan(self.view.groups) is not None:
+            if self.view.groups is not None and top_plan(self.view.groups, self.view.focus) is not None:
                 self.settings.expanded = not self.settings.expanded
                 self.view.scroll = 0
                 self.settings.save()
@@ -1087,7 +1092,7 @@ class MacMini:
     # --- menu bar icon and menu
     def summary(self) -> str:
         groups = self.view.groups
-        top = top_plan(groups) if groups is not None else None
+        top = top_plan(groups, self.view.focus) if groups is not None else None
         if top:
             line = f"{top['name']}: {top['verdict']} · {pace_text(top)} · {when_text(top)}"
             return line + (" · old reading" if self.view.error else "")
@@ -1097,7 +1102,7 @@ class MacMini:
 
     def update_tray(self) -> None:
         groups = self.view.groups
-        top = top_plan(groups) if groups is not None else None
+        top = top_plan(groups, self.view.focus) if groups is not None else None
         key = (top["level"], round(top["used"]), None if top["elapsed"] is None else round(top["elapsed"])) if top else None
         if key != self._icon_key:
             image = draw_image(16, 16, 2.25, lambda c: paint_tray(c, top))   # 18 points at 2x
@@ -1111,14 +1116,14 @@ class MacMini:
     def fill_menu(self, menu: int) -> None:
         send(menu, "removeAllItems", res=None)
 
-        def add(title: str, tag: int = 0, state: int = 0) -> None:
+        def add(title: str, tag: int = 0, state: int = 0, into: int | None = None) -> None:
             entry = send(send(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:", ns(title),
                          sel("menuAction:") if tag else None, ns(""))
             send(entry, "setTarget:", self.delegate, res=None)
             send(entry, "setTag:", tag, res=None)
             send(entry, "setEnabled:", bool(tag), res=None)
             send(entry, "setState:", state, res=None)
-            send(menu, "addItem:", entry, res=None)
+            send(into or menu, "addItem:", entry, res=None)
             send(entry, "release", res=None)
 
         def separator() -> None:
@@ -1128,6 +1133,22 @@ class MacMini:
         separator()
         add("Hide pill" if self.visible else "Show pill", 1)
         add("Show all plans", 2)
+        labels = [g["label"] for g in self.view.groups or [] if g["label"]]
+        if len(labels) > 1:
+            # Which group comes first and supplies the pill's plan: Work on a work laptop.
+            current = focus_group(self.view.groups, self.settings.focus)
+            self._focus_choices = [""] + labels
+            sub = send(send(cls("NSMenu"), "alloc"), "initWithTitle:", ns("Show first"))
+            send(sub, "setAutoenablesItems:", False, res=None)
+            for i, label in enumerate(self._focus_choices):
+                chosen = current is None if i == 0 else current is not None and current["label"] == label
+                add("Server order" if i == 0 else label, FOCUS_TAG + i, 1 if chosen else 0, into=sub)
+            holder = send(send(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:", ns("Show first"),
+                          None, ns(""))
+            send(holder, "setSubmenu:", sub, res=None)
+            send(menu, "addItem:", holder, res=None)
+            send(holder, "release", res=None)
+            send(sub, "release", res=None)
         add("Reset position", 3)
         add("Refresh now", 4)
         add("Open page", 5)
@@ -1167,6 +1188,11 @@ class MacMini:
                 pass
         elif tag == MENU_ITEMS:
             self.quit()
+        elif FOCUS_TAG <= tag < FOCUS_TAG + len(self._focus_choices):
+            self.settings.focus = self._focus_choices[tag - FOCUS_TAG]
+            self.settings.save()
+            self.view.scroll = 0
+            self.render()
 
     def show_context_menu(self, event: int) -> None:
         send(cls("NSMenu"), "popUpContextMenu:withEvent:forView:", self.menu, event, self.nsview, res=None)
@@ -1268,6 +1294,7 @@ def run_mac(args: Any) -> int:
             server = normalize(args.server or "http://localhost:8787")
             view = View()
             view.configured, view.server, view.expanded = True, server, args.expanded
+            view.focus = (args.focus or "").strip()
             try:
                 if not server:
                     raise MiniError("Not an http:// or https:// address")
@@ -1284,6 +1311,9 @@ def run_mac(args: Any) -> int:
         if args.server:
             settings.server = normalize(args.server)
             settings.token = os.environ.get("TOKENPACE_TOKEN", settings.token)
+            settings.save()
+        if args.focus is not None:
+            settings.focus = args.focus.strip()[:60]
             settings.save()
         global _APP
         _APP = app = MacMini(settings)

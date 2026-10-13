@@ -31,7 +31,7 @@ Token Pace needs Python 3.11 or newer and nothing else. Run `python3 --version` 
 ## 2. Install
 
 ```sh
-pipx install git+https://github.com/LuizPiccini/tokenpace@v0.4.0
+pipx install git+https://github.com/LuizPiccini/tokenpace@v0.4.1
 tokenpace --version
 tokenpace collect --demo
 ```
@@ -41,7 +41,7 @@ work the same in Windows PowerShell.
 
 If pipx is missing, install it (`python3 -m pip install --user pipx`, then
 `python3 -m pipx ensurepath`) or use `python3 -m pip install --user
-git+https://github.com/LuizPiccini/tokenpace@v0.4.0`. If `tokenpace` is not found afterwards, the
+git+https://github.com/LuizPiccini/tokenpace@v0.4.1`. If `tokenpace` is not found afterwards, the
 install's script directory is not on PATH; run `pipx ensurepath` and open a new shell.
 Note the full path from `command -v tokenpace` (`where tokenpace` on Windows) for step 6.
 

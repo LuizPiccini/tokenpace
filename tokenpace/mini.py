@@ -71,7 +71,7 @@ def _num(d: dict, key: str, default: float | None) -> float | None:
 
 
 def parse(body: str) -> list[dict[str, Any]]:
-    """The /api/widget document as [{"label", "items": [plan...]}]. Accepts the current shape
+    """The /api/widget document as [{"id", "label", "items": [plan...]}]. Accepts the current shape
     (groups as a list) and older private servers' shape (groups as {label: rows})."""
     try:
         root = json.loads(body)
@@ -80,16 +80,17 @@ def parse(body: str) -> list[dict[str, Any]]:
     if not isinstance(root, dict) or "groups" not in root:
         raise MiniError("The server did not answer with Token Pace data")
     raw = root["groups"]
-    pairs: list[tuple[str, Any]] = []
+    pairs: list[tuple[str, str, Any]] = []
     if isinstance(raw, list):
         for g in raw:
             if isinstance(g, dict):
-                pairs.append((str(g.get("label") or g.get("id") or ""), g.get("items")))
+                label = str(g.get("label") or g.get("id") or "")
+                pairs.append((str(g.get("id") or label), label, g.get("items")))
     elif isinstance(raw, dict):
-        pairs = [(str(k), v) for k, v in raw.items()]
+        pairs = [(str(k), str(k), v) for k, v in raw.items()]
     pairs = pairs[:MAX_ROWS]   # groups too: each costs drawing time
     groups = []
-    for label, items in pairs:
+    for gid, label, items in pairs:
         plans = []
         for i, r in enumerate((items if isinstance(items, list) else [])[:MAX_ROWS]):
             if not isinstance(r, dict):
@@ -108,13 +109,32 @@ def parse(body: str) -> list[dict[str, Any]]:
                 "resets": _num(r, "resets_epoch", None),
                 "released": _num(r, "released_epoch", None),
             })
-        groups.append({"label": label, "items": plans})
+        groups.append({"id": gid, "label": label, "items": plans})
     return groups
 
 
-def top_plan(groups: list[dict]) -> dict | None:
-    """The plan the pill shows: the first group's "use first", else its top row."""
+def focus_group(groups: list[dict], focus: str) -> dict | None:
+    """The group the "show first" setting names (its label or id, in any case), if the feed has it."""
+    wanted = (focus or "").strip().casefold()
+    if not wanted:
+        return None
     for g in groups:
+        if wanted in (g["label"].casefold(), str(g.get("id") or "").casefold()):
+            return g
+    return None
+
+
+def ordered(groups: list[dict], focus: str = "") -> list[dict]:
+    """The groups with the "show first" one on top, the rest in the server's order."""
+    chosen = focus_group(groups, focus)
+    return groups if chosen is None else [chosen] + [g for g in groups if g is not chosen]
+
+
+def top_plan(groups: list[dict], focus: str = "") -> dict | None:
+    """The plan the pill shows: the first group's "use first", else its top row. With a "show
+    first" group the feed has (a work laptop showing only work plans), only that group counts."""
+    chosen = focus_group(groups, focus)
+    for g in [chosen] if chosen is not None else groups:
         for p in g["items"]:
             if p["level"] == "use":
                 return p
@@ -476,6 +496,7 @@ class Settings:
         self.left: float | None = None
         self.top: float | None = None
         self.expanded = False
+        self.focus = ""
 
     @classmethod
     def load(cls) -> "Settings":
@@ -491,10 +512,12 @@ class Settings:
             s.left = _num(d, "left", None)
             s.top = _num(d, "top", None)
             s.expanded = d.get("expanded") is True
+            s.focus = d["focus"].strip()[:60] if isinstance(d.get("focus"), str) else ""
         return s
 
     def save(self) -> None:
-        d: dict[str, Any] = {"server": self.server, "token": protect(self.token), "expanded": self.expanded}
+        d: dict[str, Any] = {"server": self.server, "token": protect(self.token), "expanded": self.expanded,
+                             "focus": self.focus}
         if self.left is not None and self.top is not None:
             d["left"], d["top"] = round(self.left), round(self.top)
         path = settings_path()
@@ -805,6 +828,7 @@ class View:
         self.configured = False
         self.server = ""
         self.expanded = False
+        self.focus = ""   # the "show first" group; "" keeps the server's order
         self.above = False
         self.scroll = 0.0
         self.max_list_h: float | None = None
@@ -861,7 +885,7 @@ class View:
         self.hits.append((x, y, WIDTH, h, "pill", "move"))
         ix, iy, ih = x + 1 + 12, y + 1 + 9, h - 2 - 18
         c.mark(ix, iy + (ih - 38) / 2, 38)
-        top = top_plan(self.groups) if self.groups is not None else None
+        top = top_plan(self.groups, self.focus) if self.groups is not None else None
         if not self.configured:
             title, sub, chip, level, action = [("Token Pace", Canvas.SEMIBOLD, 15, C["ink"])], \
                 [("Connect it to your server", Canvas.REGULAR, 12.5, C["soft"])], "Set up", "use", "settings"
@@ -924,7 +948,7 @@ class View:
             c.runs([(msg, Canvas.REGULAR, 13, C["soft"])], ix, yy, 13 * LH, iw)
         else:
             first = True
-            for g in self.groups:
+            for g in ordered(self.groups, self.focus):
                 if not g["items"]:
                     continue
                 yy += 2 if first else 12
@@ -1090,6 +1114,7 @@ class Mini:
         v.configured = bool(s.server)
         v.server = s.server
         v.expanded = s.expanded
+        v.focus = s.focus
         self.layout()
         w, h = v.size()
         k = self.scale
@@ -1165,7 +1190,7 @@ class Mini:
     # --- actions
     def act(self, action: str) -> None:
         if action == "toggle":
-            if self.view.groups is not None and top_plan(self.view.groups) is not None:
+            if self.view.groups is not None and top_plan(self.view.groups, self.view.focus) is not None:
                 self.settings.expanded = not self.settings.expanded
                 self.view.scroll = 0
                 self.settings.save()
@@ -1367,7 +1392,7 @@ class Mini:
 
     def update_tray(self) -> None:
         groups = self.view.groups
-        top = top_plan(groups) if groups is not None else None
+        top = top_plan(groups, self.view.focus) if groups is not None else None
         tip = (f"{top['name']}: {top['verdict']} · {pace_text(top)} · {when_text(top)}" if top
                else "Token Pace · " + (self.view.error or "no reading yet"))
         size = max(16, int(round(16 * self.scale)))
@@ -1504,6 +1529,8 @@ def run(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="tokenpace mini",
                                 description="Floating pill with a tray icon (Windows) or menu bar icon (macOS).")
     p.add_argument("--server", help="server address; saved unless --snapshot is used")
+    p.add_argument("--focus", help='group to show first, e.g. "Work"; only its plans can be the one '
+                                   'to use first. Saved unless --snapshot is used; "" goes back to the server\'s order')
     p.add_argument("--snapshot", help="render to a PNG and exit (no window)")
     p.add_argument("--expanded", action="store_true")
     p.add_argument("--backdrop", help="background colour for --snapshot, e.g. #2B3A55")
@@ -1519,6 +1546,7 @@ def run(argv: list[str]) -> int:
         server = normalize(args.server or "http://localhost:8787")
         view = View()
         view.configured, view.server, view.expanded = True, server, args.expanded
+        view.focus = (args.focus or "").strip()
         try:
             if not server:
                 raise MiniError("Not an http:// or https:// address")
@@ -1534,6 +1562,9 @@ def run(argv: list[str]) -> int:
     if args.server:
         settings.server = normalize(args.server)
         settings.token = os.environ.get("TOKENPACE_TOKEN", settings.token)
+        settings.save()
+    if args.focus is not None:
+        settings.focus = args.focus.strip()[:60]
         settings.save()
     app = Mini(settings)
     if not settings.server:
