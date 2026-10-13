@@ -7,6 +7,8 @@ Python does, including PCs with Smart App Control, which blocks unsigned .exe fi
 
 It reads /api/widget like the Android widget and keeps its settings in
 %APPDATA%\TokenPace\mini.json, with the token encrypted by Windows DPAPI.
+
+The macOS version (mini_mac.py) reuses the data and layout code here and draws with Core Graphics.
 """
 from __future__ import annotations
 
@@ -467,7 +469,7 @@ def settings_path() -> str:
 
 
 class Settings:
-    """%APPDATA%\TokenPace\mini.json; positions in 1/96-inch units."""
+    r"""%APPDATA%\TokenPace\mini.json; positions in 1/96-inch units."""
 
     def __init__(self) -> None:
         self.server, self.token = "", ""
@@ -1499,14 +1501,18 @@ class Mini:
 
 def run(argv: list[str]) -> int:
     import argparse
-    p = argparse.ArgumentParser(prog="tokenpace mini", description="Floating pill and tray icon (Windows).")
+    p = argparse.ArgumentParser(prog="tokenpace mini",
+                                description="Floating pill with a tray icon (Windows) or menu bar icon (macOS).")
     p.add_argument("--server", help="server address; saved unless --snapshot is used")
     p.add_argument("--snapshot", help="render to a PNG and exit (no window)")
     p.add_argument("--expanded", action="store_true")
     p.add_argument("--backdrop", help="background colour for --snapshot, e.g. #2B3A55")
     args = p.parse_args(argv)
+    if sys.platform == "darwin":
+        from .mini_mac import run_mac
+        return run_mac(args)
     if sys.platform != "win32":
-        print("tokenpace mini runs on Windows. Elsewhere, open the server's page.", file=sys.stderr)
+        print("tokenpace mini runs on Windows and macOS. Elsewhere, open the server's page.", file=sys.stderr)
         return 2
     ctypes.windll.user32.SetProcessDPIAware()
     if args.snapshot:

@@ -240,6 +240,27 @@ class HostCheckTest(unittest.TestCase):
         self.assertEqual(self.status("usage.tailnet.example:8787"), 200)
         self.assertEqual(self.status("evil.example:8787"), 421)
 
+class MachineNamesTest(unittest.TestCase):
+    def test_a_slow_reverse_lookup_never_holds_a_request(self):
+        release = threading.Event()
+
+        def slow_fqdn():
+            release.wait(5)
+            return "mac.example.lan"
+
+        names = server_mod.MachineNames()
+        with mock.patch.object(server_mod.socket, "getfqdn", side_effect=slow_fqdn):
+            started = time.monotonic()
+            first = names.get()
+            self.assertLess(time.monotonic() - started, 0.5)
+            self.assertNotIn("mac.example.lan", first)
+            release.set()
+            for _ in range(100):
+                if "mac.example.lan" in names.get():
+                    break
+                time.sleep(0.01)
+        self.assertIn("mac.example.lan", names.get())
+
 
 if __name__ == "__main__":
     unittest.main()
