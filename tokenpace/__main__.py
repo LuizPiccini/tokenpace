@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("set-token", help="write a random server token into the config without printing it")
     t.add_argument("--config")
     t.set_defaults(fn=cmd_set_token)
-    sub.add_parser("mini", help="Windows: floating pill and tray icon (pythonw -m tokenpace mini)")
+    sub.add_parser("mini", help="Windows and macOS: floating pill with a tray or menu bar icon")
     u = sub.add_parser("push", help="send this machine's readings to a tokenpace server")
     u.add_argument("--config")
     u.add_argument("--to", required=True, help="server URL, e.g. http://my-server:8787")
