@@ -371,6 +371,13 @@ public class UsageWidget extends AppWidgetProvider {
         } else if (root != null && fetched > 0 && now - fetched > 2 * 3600 * 1000L) {
             status = "data from " + duration((now - fetched) / 1000L) + " ago";
         }
+        JSONArray warnings = root == null ? null : root.optJSONArray("warnings");
+        if (warnings != null && warnings.length() > 0) {
+            JSONObject first = warnings.optJSONObject(0);
+            String warning = first == null ? "Reading needs attention" :
+                    first.optString("name", "Service") + ": " + first.optString("reason", "Reading needs attention");
+            status = status == null ? warning : status + " ? " + warning;
+        }
         JSONObject apk = root == null ? null : root.optJSONObject("apk");
         if (apk != null && apk.optLong("version_code", 0) > versionCode(context)) {
             String update = "new version " + apk.optString("version", "") + " on the page";

@@ -281,7 +281,8 @@ class App:
     def widget_view(self) -> dict[str, Any]:
         view = self.view()
         now = now_ts()
-        out: dict[str, Any] = {"version": __version__, "title": view["title"], "now": view["now"], "groups": []}
+        out: dict[str, Any] = {"version": __version__, "title": view["title"], "now": view["now"], "groups": [],
+                               "warnings": view["advice"]["left_out"]}
         if self.cfg.apk.get("version_code") and self.apk_file():
             out["apk"] = {"version_code": int(self.cfg.apk["version_code"]),
                           "version": str(self.cfg.apk.get("version") or ""), "url": "android/tokenpace.apk"}
