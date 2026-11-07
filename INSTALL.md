@@ -31,7 +31,7 @@ Token Pace needs Python 3.11 or newer and nothing else. Run `python3 --version` 
 ## 2. Install
 
 ```sh
-pipx install git+https://github.com/LuizPiccini/tokenpace@v0.5.0
+pipx install git+https://github.com/LuizPiccini/tokenpace@v0.6.0
 tokenpace --version
 tokenpace collect --demo
 ```
@@ -41,7 +41,7 @@ work the same in Windows PowerShell.
 
 If pipx is missing, install it (`python3 -m pip install --user pipx`, then
 `python3 -m pipx ensurepath`) or use `python3 -m pip install --user
-git+https://github.com/LuizPiccini/tokenpace@v0.5.0`. If `tokenpace` is not found afterwards, the
+git+https://github.com/LuizPiccini/tokenpace@v0.6.0`. If `tokenpace` is not found afterwards, the
 install's script directory is not on PATH; run `pipx ensurepath` and open a new shell.
 Note the full path from `command -v tokenpace` (`where tokenpace` on Windows) for step 6.
 
@@ -202,7 +202,7 @@ GTK, WebKit and AppIndicator bindings, which are system packages, so ask before 
 them. On Ubuntu/Debian: `sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1
 gir1.2-ayatanaappindicator3-0.1`. Then reinstall Token Pace so it can see them:
 `pipx install --force --python /usr/bin/python3 --system-site-packages
-git+https://github.com/LuizPiccini/tokenpace@v0.5.0`. Run `tokenpace tray --show`; it reads
+git+https://github.com/LuizPiccini/tokenpace@v0.6.0`. Run `tokenpace tray --show`; it reads
 the server address and token from the config. GNOME needs an AppIndicator extension, which
 Ubuntu ships. For login startup, copy
 [contrib/linux/tokenpace-tray.desktop](https://raw.githubusercontent.com/LuizPiccini/tokenpace/main/contrib/linux/tokenpace-tray.desktop)
