@@ -52,7 +52,7 @@ git clone https://github.com/LuizPiccini/tokenpace && cd tokenpace
 python -m tokenpace serve --demo          # synthetic data at http://localhost:8787
 ```
 
-Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.5.0`.
+Or install the command: `pipx install git+https://github.com/LuizPiccini/tokenpace@v0.6.0`.
 
 Then describe your own subscriptions:
 
@@ -175,7 +175,7 @@ to run on the system Python with system packages visible. On Ubuntu/Debian:
 
 ```sh
 sudo apt install pipx python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
-pipx install --python /usr/bin/python3 --system-site-packages git+https://github.com/LuizPiccini/tokenpace@v0.5.0
+pipx install --python /usr/bin/python3 --system-site-packages git+https://github.com/LuizPiccini/tokenpace@v0.6.0
 tokenpace tray --show
 ```
 
