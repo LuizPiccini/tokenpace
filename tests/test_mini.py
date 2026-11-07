@@ -190,6 +190,27 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(old[1]["id"], "Tela")
         self.assertIsNone(mini.top_plan(old, "Tela"))   # the focus group alone counts, even when empty
 
+    def test_focused_pill_ignores_other_group_warning_and_marks_refresh_failure(self):
+        data = {"groups": [{"id": "personal", "label": "Personal", "items": []},
+                           {"id": "work", "label": "Work", "items": [row(name="Work plan")]}],
+                "warnings": [{"group": "personal", "name": "Claude", "reason": "Sign in again"}]}
+        view = mini.View()
+        view.groups, view.configured, view.focus = mini.parse(json.dumps(data)), True, "work"
+        canvas = mock.Mock()
+        canvas.measure.return_value = 20
+        view.draw_pill(canvas, 0, 0)
+        rendered = [run[0] for call in canvas.runs.call_args_list for run in call.args[0]]
+        self.assertIn("Work plan", rendered)
+        self.assertNotIn("Reading needs attention", rendered)
+        view.focus, view.error = "", "Connection failed"
+        canvas.reset_mock()
+        canvas.measure.return_value = 20
+        view.draw_pill(canvas, 0, 0)
+        rendered = [run[0] for call in canvas.runs.call_args_list for run in call.args[0]]
+        self.assertIn("Update failed ? old reading", rendered)
+        self.assertIn("Claude: Sign in again", rendered)
+        canvas.pace_bar.assert_not_called()
+
     def test_text(self):
         p = mini.parse(json.dumps({"groups": [{"label": "P", "items": [row(need=120), row(level="blocked", released_epoch=1000 + 7200)]}]}))[0]["items"]
         self.assertEqual(mini.pace_text(p[0]), "99×+")

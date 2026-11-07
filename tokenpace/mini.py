@@ -889,12 +889,15 @@ class View:
         ix, iy, ih = x + 1 + 12, y + 1 + 9, h - 2 - 18
         c.mark(ix, iy + (ih - 38) / 2, 38)
         top = top_plan(self.groups, self.focus) if self.groups is not None else None
-        warnings = [w for g in (self.groups or []) for w in g.get("warnings", [])]
+        chosen = focus_group(self.groups or [], self.focus)
+        warning_groups = [chosen] if chosen is not None else (self.groups or [])
+        warnings = [w for g in warning_groups for w in g.get("warnings", [])]
         if not self.configured:
             title, sub, chip, level, action = [("Token Pace", Canvas.SEMIBOLD, 15, C["ink"])], \
                 [("Connect it to your server", Canvas.REGULAR, 12.5, C["soft"])], "Set up", "use", "settings"
         elif warnings:
-            title = [("Reading needs attention", Canvas.SEMIBOLD, 15, C["ink"])]
+            title = [("Update failed ? old reading" if self.error else "Reading needs attention",
+                      Canvas.SEMIBOLD, 15, C["ink"])]
             sub = [(warnings[0], Canvas.REGULAR, 12.5, C["warn"])]
             chip, level, action = "Open page", "on_pace", "open"
         elif self.groups is not None and top is None:
@@ -935,7 +938,7 @@ class View:
         ty = iy + (ih - col_h) / 2
         c.runs(title, tx, ty, 15 * LH, tw_max)
         c.runs(sub, tx, ty + 15 * LH, 12.5 * LH, tw_max)
-        if top is not None and self.configured:
+        if top is not None and self.configured and not warnings:
             c.pace_bar(tx, ty + 15 * LH + 12.5 * LH + 3 + 3, tw_max, 5, top["used"], top["elapsed"])
 
     def draw_panel(self, c: Canvas, x: float, y: float, h: float) -> None:
