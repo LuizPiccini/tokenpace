@@ -212,9 +212,9 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
     left_out = []
     for sub in subscriptions:
         paces = [p for p in (window_pace(w, now) for w in sub.get("windows") or []) if p]
-        if not paces or sub.get("status") == "unavailable":
-            reason = sub.get("message") or "No reading."
-            if sub.get("windows") and not paces:
+        if not paces or sub.get("status") in ("unavailable", "stale", "error"):
+            reason = sub.get("message") or ("Old reading; refresh this service." if sub.get("status") == "stale" else "No reading.")
+            if sub.get("windows") and not paces and not sub.get("message"):
                 reason = "Reading without a reset time; it cannot be compared with the period."
             left_out.append({"id": sub["id"], "name": sub["name"], "group": sub["group"], "reason": reason})
             continue

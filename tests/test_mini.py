@@ -152,6 +152,11 @@ class FetchTest(unittest.TestCase):
 
 
 class ParseTest(unittest.TestCase):
+    def test_warning_is_retained_for_legacy_private_feed(self):
+        data = {"groups": {"Personal": [row()]}, "warnings": [{"owner": "Personal", "name": "Claude", "reason": "Sign in again"}]}
+        groups = mini.parse(json.dumps(data))
+        self.assertEqual(groups[0]["warnings"], ["Claude: Sign in again"])
+
     def test_both_feed_shapes(self):
         listed = mini.parse(json.dumps({"groups": [{"id": "p", "label": "Personal", "items": [row()]}]}))
         old = mini.parse(json.dumps({"groups": {"Personal": [row()], "Tela": []}}))

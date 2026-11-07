@@ -230,6 +230,12 @@ public class UsageWidgetTest {
     }
 
     @Test
+    public void warnsWhenServiceNeedsLogin() {
+        store(fixture().replaceFirst("\\{", "{\"warnings\":[{\"name\":\"Claude\",\"reason\":\"Sign in again\"}],"));
+        assertEquals("Claude: Sign in again", status(render(null, false, 0)));
+    }
+
+    @Test
     public void newerApkIsAnnounced() {
         store(fixture().replaceFirst("\\{", "{\"apk\": {\"version_code\": 99, \"version\": \"9.9\"}, "));
         assertEquals("new version 9.9 on the page", status(render(null, false, 0)));

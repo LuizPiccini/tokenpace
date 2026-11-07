@@ -321,6 +321,13 @@
     var box = $("#groups");
     openWhy = {}; box.querySelectorAll("details.more[open]").forEach(function (d) { openWhy[d.dataset.id] = true; });
     box.textContent = "";
+    var warnings = adv.left_out || [];
+    if (warnings.length) {
+      var alert = el("section", "group"); alert.setAttribute("role", "alert");
+      alert.appendChild(el("h2", null, "Readings need attention"));
+      warnings.forEach(function (w) { alert.appendChild(el("p", "src", w.name + ": " + w.reason)); });
+      box.appendChild(alert);
+    }
     var shown = 0;
     groupList.forEach(function (g) {
       var rows = ranked[g.id] || []; if (!rows.length) return;

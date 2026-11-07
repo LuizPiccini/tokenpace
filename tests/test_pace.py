@@ -12,6 +12,13 @@ def sub(sid, used, elapsed_frac, seconds=7 * 86400, kind="weekly", group="person
 
 
 class PaceTest(unittest.TestCase):
+    def test_stale_login_is_not_recommended(self):
+        s = sub("claude", 32, 0.5)
+        s.update(status="stale", message="Sign in again")
+        advice = build_advice([s], ["personal"], time.time())
+        self.assertEqual(advice["groups"]["personal"], [])
+        self.assertEqual(advice["left_out"][0]["reason"], "Sign in again")
+
     def test_needed_pace(self):
         now = time.time()
         w = make_window("weekly", 20, iso(now + 3.5 * 86400))
