@@ -228,9 +228,38 @@ class ParseTest(unittest.TestCase):
         canvas.measure.return_value = 20
         view.draw_pill(canvas, 0, 0)
         rendered = [run[0] for call in canvas.runs.call_args_list for run in call.args[0]]
-        self.assertIn("Update failed ? old reading", rendered)
-        self.assertIn("Claude: Sign in again", rendered)
-        canvas.pace_bar.assert_not_called()
+        self.assertIn("Work plan", rendered)
+        self.assertIn(" · old reading", rendered)
+        canvas.pace_bar.assert_called_once()
+
+    def test_pill_keeps_the_plan_and_tabs_switch_accounts(self):
+        data = {"groups": [{"id": "personal", "label": "Personal", "items": [row(name="Personal plan")]},
+                           {"id": "work", "label": "Work", "items": [row(name="Work plan")]}],
+                "warnings": [{"group": "personal", "name": "OpenAI API", "reason": "Grant total needed"}]}
+        view = mini.View()
+        view.groups, view.configured = mini.parse(json.dumps(data)), True
+        canvas = mock.Mock()
+        canvas.measure.return_value = 20
+        view.draw_pill(canvas, 0, 0)
+        rendered = [run[0] for call in canvas.runs.call_args_list for run in call.args[0]]
+        self.assertIn("Personal plan", rendered)
+        self.assertIn(" · 1 needs attention", rendered)
+        self.assertNotIn("Reading needs attention", rendered)
+        view.expanded = True
+        canvas.reset_mock()
+        canvas.measure.return_value = 20
+        view.draw(canvas)
+        self.assertEqual([h[4] for h in view.hits if h[4].startswith("tab:")], ["tab:personal", "tab:work"])
+        rendered = [run[0] for call in canvas.runs.call_args_list for run in call.args[0]]
+        self.assertIn("OpenAI API: Grant total needed", rendered)
+        view.tab = "work"
+        canvas.reset_mock()
+        canvas.measure.return_value = 20
+        view.draw(canvas)
+        rendered = [run[0] for call in canvas.runs.call_args_list for run in call.args[0]]
+        self.assertIn("Work plan", rendered)
+        self.assertNotIn("Personal plan", rendered)
+        self.assertNotIn("OpenAI API: Grant total needed", rendered)
 
     def test_text(self):
         p = mini.parse(json.dumps({"groups": [{"label": "P", "items": [row(need=120), row(level="blocked", released_epoch=1000 + 7200)]}]}))[0]["items"]

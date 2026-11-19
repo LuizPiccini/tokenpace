@@ -864,6 +864,7 @@ GROUP_SIZE = 12.0
 ROW_H = 6 + 15 * LH + 2 + 12 + 1 + SECONDARY_SIZE * LH + 4
 
 
+TAB_H = 6 + 13 * LH + 6 + 10
 SERVICE_H = 4 + 15 * LH
 METER_H = 3 + 13 * LH + 2 + 6 + 4 + SECONDARY_SIZE * LH + 3
 
@@ -903,6 +904,7 @@ class View:
         self.server = ""
         self.expanded = False
         self.focus = ""   # the "show first" group; "" keeps the server's order
+        self.tab = ""     # the account tab chosen in the panel; "" shows the "show first" group
         self.above = False
         self.scroll = 0.0
         self.max_list_h: float | None = None
@@ -910,27 +912,34 @@ class View:
         self.list_view = (0.0, 0.0, 0.0, 0.0)
         self.list_content_h = 0.0
 
+    def tabbed(self) -> list[dict]:
+        return [g for g in self.groups or [] if g["items"]]
+
+    def shown_group(self) -> dict | None:
+        """The account on screen: the chosen tab, else the "show first" group, else the first."""
+        groups = self.tabbed()
+        for g in groups:
+            if g["id"] == self.tab:
+                return g
+        return focus_group(groups, self.focus) or (groups[0] if groups else None)
+
     # --- sizes
     def pill_h(self) -> float:
         return 1 + 9 + (15 * LH + 12.5 * LH + 14) + 9 + 1
 
     def rows_h(self) -> float:
-        if not self.groups or not any(g["items"] for g in self.groups):
+        g = self.shown_group()
+        if g is None:
             return 13 * LH
-        h, first = 0.0, True
-        for g in self.groups:
-            if not g["items"]:
-                continue
-            h += (2 if first else 12) + GROUP_SIZE * LH + 2
-            first = False
-            h += sum(height for _, _, height in group_rows(g))
-        return h
+        warnings = len(g.get("warnings", [])) * (SECONDARY_SIZE * LH + 4)
+        return 2 + warnings + sum(height for _, _, height in group_rows(g))
 
     def panel_h(self) -> float:
         list_h = self.rows_h()
         if self.max_list_h is not None:
             list_h = min(list_h, self.max_list_h)
-        return 1 + 10 + list_h + 10 + SECONDARY_SIZE * LH + 12 + 1
+        tabs = TAB_H if len(self.tabbed()) > 1 else 0
+        return 1 + 10 + tabs + list_h + 10 + SECONDARY_SIZE * LH + 12 + 1
 
     def panel_chrome_h(self) -> float:
         return self.panel_h() - min(self.rows_h(), self.max_list_h if self.max_list_h is not None else 1e9)
@@ -959,13 +968,27 @@ class View:
         self.hits.append((x, y, WIDTH, h, "pill", "move"))
         ix, iy, ih = x + 1 + 12, y + 1 + 9, h - 2 - 18
         c.mark(ix, iy + (ih - 38) / 2, 38)
-        top = top_plan(self.groups, self.focus) if self.groups is not None else None
-        chosen = focus_group(self.groups or [], self.focus)
-        warning_groups = [chosen] if chosen is not None else (self.groups or [])
-        warnings = [w for g in warning_groups for w in g.get("warnings", [])]
+        shown = self.shown_group()
+        # The pill follows the account tab on screen; its warnings stay secondary to the plan.
+        top = top_plan(self.groups, shown["id"] if shown else self.focus) if self.groups is not None else None
+        if shown is not None:
+            warnings = shown.get("warnings", [])
+        else:
+            chosen = focus_group(self.groups or [], self.focus)
+            warnings = [w for g in ([chosen] if chosen else self.groups or []) for w in g.get("warnings", [])]
         if not self.configured:
             title, sub, chip, level, action = [("Token Pace", Canvas.SEMIBOLD, 15, C["ink"])], \
                 [("Connect it to your server", Canvas.REGULAR, 12.5, C["soft"])], "Set up", "use", "settings"
+        elif top is not None:
+            title = [(top["name"], Canvas.SEMIBOLD, 15, C["ink"]), ("  " + top["window"], Canvas.REGULAR, 12, C["muted"])]
+            sub = [(pace_text(top), Canvas.BOLD, 12.5, level_ink(top["level"])),
+                   (" · " + when_text(top), Canvas.REGULAR, 12.5, C["soft"])]
+            if self.error:
+                sub.append((" · old reading", Canvas.REGULAR, 12.5, C["warn"]))
+            elif warnings:
+                sub.append((f" · {len(warnings)} need{'s' if len(warnings) == 1 else ''} attention",
+                            Canvas.REGULAR, 12.5, C["warn"]))
+            chip, level, action = top["verdict"], top["level"], "toggle"
         elif warnings:
             title = [("Update failed ? old reading" if self.error else "Reading needs attention",
                       Canvas.SEMIBOLD, 15, C["ink"])]
@@ -975,17 +998,10 @@ class View:
             title = [("No readings yet", Canvas.SEMIBOLD, 15, C["ink"])]
             sub = [(self.error or "Enter numbers or sign in", Canvas.REGULAR, 12.5, C["warn"] if self.error else C["soft"])]
             chip, level, action = "Open page", "on_pace", "open"
-        elif top is None:
+        else:
             title = [("No reading yet" if self.error else "Reading…", Canvas.SEMIBOLD, 15, C["ink"])]
             sub = [(self.error or self.server, Canvas.REGULAR, 12.5, C["warn"] if self.error else C["soft"])]
             chip, level, action = ("Retry" if self.error else "…"), "on_pace", "refresh"
-        else:
-            title = [(top["name"], Canvas.SEMIBOLD, 15, C["ink"]), ("  " + top["window"], Canvas.REGULAR, 12, C["muted"])]
-            sub = [(pace_text(top), Canvas.BOLD, 12.5, level_ink(top["level"])),
-                   (" · " + when_text(top), Canvas.REGULAR, 12.5, C["soft"])]
-            if self.error:
-                sub.append((" · old reading", Canvas.REGULAR, 12.5, C["warn"]))
-            chip, level, action = top["verdict"], top["level"], "toggle"
         # right side: chevron, then chip
         cx = x + WIDTH - 1 - 10 - 26
         chev_y = iy + (ih - 26) / 2
@@ -1009,7 +1025,7 @@ class View:
         ty = iy + (ih - col_h) / 2
         c.runs(title, tx, ty, 15 * LH, tw_max)
         c.runs(sub, tx, ty + 15 * LH, 12.5 * LH, tw_max)
-        if top is not None and self.configured and not warnings:
+        if top is not None and self.configured:
             c.pace_bar(tx, ty + 15 * LH + 12.5 * LH + 3 + 3, tw_max, 5, top["used"], top["elapsed"])
 
     def draw_panel(self, c: Canvas, x: float, y: float, h: float) -> None:
@@ -1018,26 +1034,37 @@ class View:
         self.hits.append((x, y, WIDTH, h, "panel", "arrow"))
         ix, iw = x + 1 + 16, WIDTH - 2 - 32
         list_y = y + 1 + 10
+        shown = self.shown_group()
+        if len(self.tabbed()) > 1:   # one tab per account; the list shows the chosen one
+            tx, bh = ix, 6 + 13 * LH + 6
+            for g in self.tabbed():
+                tw = c.measure(g["label"], Canvas.SEMIBOLD, 13)
+                bw = tw + 24
+                chosen = g is shown
+                c.round_rect(tx, list_y, bw, bh, bh / 2, fill=C["track"] if chosen else None,
+                             stroke=None if chosen else C["edge"], width=1)
+                c.runs([(g["label"], Canvas.SEMIBOLD, 13, C["ink"] if chosen else C["muted"])],
+                       tx + 12, list_y + 6, 13 * LH, tw + 4)
+                self.hits.append((tx, list_y, bw, bh, "tab:" + g["id"], "hand"))
+                tx += bw + 8
+            list_y += TAB_H
         content_h = self.rows_h()
         view_h = min(content_h, self.max_list_h) if self.max_list_h is not None else content_h
         self.list_view, self.list_content_h = (ix, list_y, iw, view_h), content_h
         self.scroll = max(0.0, min(self.scroll, content_h - view_h))
         c.clip_rect(x, list_y, WIDTH, view_h)
         yy = list_y - self.scroll
-        if not self.groups or not any(g["items"] for g in self.groups):
+        if shown is None:
             msg = (self.error if self.groups is None and self.error else
                    "No reading yet." if self.groups is None else "No plan has a reading yet.")
             c.runs([(msg, Canvas.REGULAR, 13, C["soft"])], ix, yy, 13 * LH, iw)
         else:
-            first = True
-            for g in ordered(self.groups, self.focus):
-                if not g["items"]:
-                    continue
-                yy += 2 if first else 12
-                first = False
+            yy += 2
+            for warning in shown.get("warnings", []):
                 if list_y - 20 < yy < list_y + view_h:
-                    c.runs([(g["label"].upper(), Canvas.SEMIBOLD, GROUP_SIZE, C["muted"])], ix, yy, GROUP_SIZE * LH, iw)
-                yy += GROUP_SIZE * LH + 2
+                    c.runs([(warning, Canvas.REGULAR, SECONDARY_SIZE, C["warn"])], ix, yy, SECONDARY_SIZE * LH, iw)
+                yy += SECONDARY_SIZE * LH + 4
+            for g in [shown]:
                 for kind, plan, height in group_rows(g):
                     if yy + height >= list_y and yy <= list_y + view_h:
                         if kind == "plan":
@@ -1329,6 +1356,9 @@ class Mini:
                 self.view.scroll = 0
                 self.settings.save()
                 self.render()
+        elif action.startswith("tab:"):
+            self.view.tab, self.view.scroll = action[4:], 0
+            self.render()
         elif action == "refresh":
             self.refresh()
         elif action == "open":

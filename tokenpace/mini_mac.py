@@ -1006,6 +1006,9 @@ class MacMini:
                 self.view.scroll = 0
                 self.settings.save()
                 self.render()
+        elif action.startswith("tab:"):
+            self.view.tab, self.view.scroll = action[4:], 0
+            self.render()
         elif action == "refresh":
             self.refresh()
         elif action == "open":
