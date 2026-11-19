@@ -98,6 +98,11 @@ def parse(body: str) -> list[dict[str, Any]]:
             elapsed = _num(r, "elapsed_percent", None)
             plans.append({
                 "rank": int(_num(r, "rank", i + 1) or i + 1),
+                "provider": str(r.get("provider") or ""),
+                "exhausted": [(str(w.get("label") or "Window"), _num(w, "resets_epoch", None))
+                              for w in (r.get("exhausted_windows") if isinstance(r.get("exhausted_windows"), list) else [])[:MAX_ROWS]
+                              if isinstance(w, dict)],
+                "meters": parse_meters(r),
                 "name": str(r.get("name") or "?"),
                 "window": str(r.get("window") or ""),
                 "level": str(r.get("level") or "on_pace"),
@@ -114,6 +119,32 @@ def parse(body: str) -> list[dict[str, Any]]:
                     and str(w.get("group") or w.get("owner") or "").casefold() in (gid.casefold(), label.casefold())]
         groups.append({"id": gid, "label": label, "items": plans, "warnings": warnings})
     return groups
+
+
+def parse_meters(plan: dict) -> list[dict] | None:
+    raw = plan.get("meters")
+    if not isinstance(raw, list):
+        return None
+    meters = []
+    for item in raw[:MAX_ROWS]:
+        if not isinstance(item, dict):
+            continue
+        used, elapsed = _num(item, "used_percent", 0) or 0, _num(item, "elapsed_percent", None)
+        meters.append({"window": str(item.get("window") or ""), "used": max(0, min(100, used)),
+                       "elapsed": None if elapsed is None else max(0, min(100, elapsed)),
+                       "need": _num(item, "need", 0) or 0, "resets": _num(item, "resets_epoch", None)})
+    return meters
+
+
+def service_mark(plan: dict) -> str | None:
+    label = (plan.get("provider", "") + " " + plan.get("name", "")).casefold()
+    for key, names in (("antigravity", ("antigravity",)), ("gemini", ("gemini", "argon")),
+                       ("codex", ("codex", "chatgpt")), ("openai", ("openai",)),
+                       ("claude", ("claude", "anthropic")), ("mimo", ("mimo", "xiaomi")),
+                       ("openrouter", ("openrouter",)), ("opencode", ("opencode",))):
+        if any(name in label for name in names):
+            return key
+    return None
 
 
 def focus_group(groups: list[dict], focus: str) -> dict | None:
@@ -399,6 +430,8 @@ if sys.platform == "win32":
         "GdiplusStartup": (ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(GdiplusStartupInput), ctypes.c_void_p),
         "GdipCreateBitmapFromScan0": (ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_void_p, PP),
         "GdipGetImageGraphicsContext": (P, PP),
+        "GdipLoadImageFromFile": (ctypes.c_wchar_p, PP),
+        "GdipDrawImageRect": (P, P, F, F, F, F),
         "GdipDeleteGraphics": (P,),
         "GdipDisposeImage": (P,),
         "GdipSetSmoothingMode": (P, ctypes.c_int),
@@ -788,6 +821,17 @@ class Canvas:
             e = elapsed / 100 * w
             self.rect(x + max(0.0, min(w - 2, e - 1)), y - 3, 2, h + 6, C["ink"])
 
+    def service_logo(self, key: str, x: float, y: float, size: float) -> bool:
+        image = ctypes.c_void_p()
+        path = os.path.join(os.path.dirname(__file__), "marks", key + ".png")
+        if gp["GdipLoadImageFromFile"](path, ctypes.byref(image)) != 0:
+            return False
+        try:
+            gp["GdipDrawImageRect"](self.g, image, x, y, size, size)
+        finally:
+            gp["GdipDisposeImage"](image)
+        return True
+
     def mark(self, x: float, y: float, size: float) -> None:
         k = size / 32
         self.round_rect(x + 2 * k, y + 2 * k, 28 * k, 28 * k, 8 * k, fill=argb("#14263F"))
@@ -818,6 +862,30 @@ def clip16(text: str, units: int) -> str:
 SECONDARY_SIZE = 12.5
 GROUP_SIZE = 12.0
 ROW_H = 6 + 15 * LH + 2 + 12 + 1 + SECONDARY_SIZE * LH + 4
+
+
+def group_rows(group: dict) -> list[tuple[str, dict | None, float]]:
+    active, exhausted = [], []
+    for plan in group["items"]:
+        windows = plan.get("exhausted") or []
+        if not windows and plan.get("level") == "blocked":
+            windows = [(plan["window"], plan.get("released") or plan.get("resets"))]
+        if windows:
+            exhausted.append({**plan, "exhausted": windows})
+        meters = plan.get("meters")
+        if meters is not None and plan.get("level") == "blocked":
+            active.extend(("plan", {**plan, **window, "level": "on_pace", "released": None,
+                                    "verdict": ""}, ROW_H) for window in meters)
+        elif plan.get("level") != "blocked":
+            active.append(("plan", plan, ROW_H))
+            if meters:
+                active.extend(("plan", {**plan, **window, "level": "on_pace", "verdict": ""},
+                               ROW_H) for window in meters[1:])
+    if exhausted:
+        compact = SECONDARY_SIZE * LH + 5
+        active.append(("used", None, compact))
+        active.extend(("reset", plan, compact) for plan in exhausted)
+    return active
 
 
 class View:
@@ -852,7 +920,7 @@ class View:
                 continue
             h += (2 if first else 12) + GROUP_SIZE * LH + 2
             first = False
-            h += len(g["items"]) * ROW_H
+            h += sum(height for _, _, height in group_rows(g))
         return h
 
     def panel_h(self) -> float:
@@ -967,11 +1035,23 @@ class View:
                 if list_y - 20 < yy < list_y + view_h:
                     c.runs([(g["label"].upper(), Canvas.SEMIBOLD, GROUP_SIZE, C["muted"])], ix, yy, GROUP_SIZE * LH, iw)
                 yy += GROUP_SIZE * LH + 2
-                for p in g["items"]:
-                    if yy + ROW_H < list_y or yy > list_y + view_h:
-                        yy += ROW_H   # outside the visible list: nothing to draw
-                    else:
-                        yy = self.draw_row(c, p, ix, yy, iw)
+                for kind, plan, height in group_rows(g):
+                    if yy + height >= list_y and yy <= list_y + view_h:
+                        if kind == "plan":
+                            self.draw_row(c, plan, ix, yy, iw)
+                        elif kind == "used":
+                            c.runs([("Used up", Canvas.SEMIBOLD, SECONDARY_SIZE, level_ink("blocked"))],
+                                   ix, yy, SECONDARY_SIZE * LH, iw)
+                        else:
+                            mark = service_mark(plan)
+                            dx = 17 if mark and c.service_logo(mark, ix, yy + 2, 13) else 0
+                            now = time.time()
+                            resets = " · ".join(label + (" in " + duration(reset - now) if reset else "")
+                                                for label, reset in plan["exhausted"])
+                            c.runs([(plan["name"], Canvas.SEMIBOLD, SECONDARY_SIZE, C["ink"]),
+                                    (" · " + resets, Canvas.REGULAR, SECONDARY_SIZE, C["muted"])],
+                                   ix + dx, yy, SECONDARY_SIZE * LH, iw - dx)
+                    yy += height
         c.unclip_all()
         if content_h > view_h:   # thin scroll indicator
             frac = view_h / content_h
@@ -993,13 +1073,18 @@ class View:
         pace = pace_text(p)
         pw = c.measure(pace, Canvas.BOLD, 15)
         c.runs([(pace, Canvas.BOLD, 15, level_ink(p["level"]))], x + w - pw - 1, y, 15 * LH, pw + 2)
-        c.runs([(f"{p['rank']}. ", Canvas.REGULAR, 13, C["muted"]), (p["name"], Canvas.SEMIBOLD, 13.5, C["ink"]),
-                ("  " + p["window"], Canvas.REGULAR, SECONDARY_SIZE, C["muted"])], x, y, 15 * LH, w - pw - 8)
+        mark = service_mark(p)
+        dx = 20 if mark and c.service_logo(mark, x, y + 2, 15) else 0
+        c.runs([(p["name"], Canvas.SEMIBOLD, 13.5, C["ink"]),
+                ("  " + p["window"], Canvas.REGULAR, SECONDARY_SIZE, C["muted"])], x + dx, y, 15 * LH, w - pw - 8 - dx)
         y += 15 * LH + 2
         c.pace_bar(x, y + 3, w, 6, p["used"], p["elapsed"])
         y += 12 + 1
-        c.runs([(p["verdict"], Canvas.SEMIBOLD, SECONDARY_SIZE, level_ink(p["level"])),
-                (f" · {round(p['used'])}% used · {when_text(p)}", Canvas.REGULAR, SECONDARY_SIZE, C["muted"])], x, y, SECONDARY_SIZE * LH, w)
+        detail = f"{round(p['used'])}% used"
+        if p["elapsed"] is not None:
+            detail += f" · {round(p['elapsed'])}% elapsed"
+        c.runs([(detail + " · " + when_text(p), Canvas.REGULAR, SECONDARY_SIZE, C["muted"])],
+               x, y, SECONDARY_SIZE * LH, w)
         return y + SECONDARY_SIZE * LH + 4
 
 

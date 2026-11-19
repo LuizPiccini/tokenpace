@@ -98,6 +98,7 @@ CGBitmapContextCreate = _fn(cg, "CGBitmapContextCreate", c_void_p, c_void_p, c_s
 CGBitmapContextCreateImage = _fn(cg, "CGBitmapContextCreateImage", c_void_p, c_void_p)
 CGContextRelease = _fn(cg, "CGContextRelease", None, c_void_p)
 CGImageRelease = _fn(cg, "CGImageRelease", None, c_void_p)
+CGContextDrawImage = _fn(cg, "CGContextDrawImage", None, c_void_p, CGRect, c_void_p)
 CGContextTranslateCTM = _fn(cg, "CGContextTranslateCTM", None, c_void_p, c_double, c_double)
 CGContextScaleCTM = _fn(cg, "CGContextScaleCTM", None, c_void_p, c_double, c_double)
 CGContextSaveGState = _fn(cg, "CGContextSaveGState", None, c_void_p)
@@ -134,6 +135,8 @@ kCTFontAttributeName = c_void_p.in_dll(ct, "kCTFontAttributeName").value
 kCTForegroundColorAttributeName = c_void_p.in_dll(ct, "kCTForegroundColorAttributeName").value
 TRUNCATE_END = 1
 
+CGImageSourceCreateWithURL = _fn(imageio, "CGImageSourceCreateWithURL", c_void_p, c_void_p, c_void_p)
+CGImageSourceCreateImageAtIndex = _fn(imageio, "CGImageSourceCreateImageAtIndex", c_void_p, c_void_p, c_size_t, c_void_p)
 CGImageDestinationCreateWithURL = _fn(imageio, "CGImageDestinationCreateWithURL", c_void_p, c_void_p, c_void_p,
                                       c_size_t, c_void_p)
 CGImageDestinationAddImage = _fn(imageio, "CGImageDestinationAddImage", None, c_void_p, c_void_p, c_void_p)
@@ -262,6 +265,29 @@ class MacCanvas(Canvas):
         self.base_clip: tuple | None = None
         self._depth = 0
         CGContextSetTextMatrix(ctx, CGAffineTransform(1, 0, 0, -1, 0, 0))   # upright glyphs on a flipped context
+
+    def service_logo(self, key: str, x: float, y: float, size: float) -> bool:
+        raw = os.fsencode(os.path.join(os.path.dirname(__file__), "marks", key + ".png"))
+        url = CFURLCreateFromFileSystemRepresentation(None, raw, len(raw), False)
+        if not url:
+            return False
+        source = CGImageSourceCreateWithURL(url, None)
+        CFRelease(url)
+        if not source:
+            return False
+        image = CGImageSourceCreateImageAtIndex(source, 0, None)
+        CFRelease(source)
+        if not image:
+            return False
+        try:
+            CGContextSaveGState(self.ctx)
+            CGContextTranslateCTM(self.ctx, x, y + size)
+            CGContextScaleCTM(self.ctx, 1, -1)
+            CGContextDrawImage(self.ctx, _rect(0, 0, size, size), image)
+            CGContextRestoreGState(self.ctx)
+        finally:
+            CGImageRelease(image)
+        return True
 
     def close(self) -> None:
         self._pop(0)

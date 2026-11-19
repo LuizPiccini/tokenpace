@@ -566,16 +566,31 @@ public class UsageWidget extends AppWidgetProvider {
         if (rows == null) {
             return out;
         }
-        for (int i = 0; i < Math.min(count, rows.length()); i++) {
-            JSONObject r = rows.optJSONObject(i);
-            if (r == null) {
-                continue;
-            }
+        List<JSONObject> exhausted = new ArrayList<>();
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject plan = rows.optJSONObject(i);
+            if (plan == null) continue;
+            JSONArray windows = plan.optJSONArray("exhausted_windows");
+            boolean collapsed = windows != null && windows.length() > 0;
+            if (collapsed) exhausted.add(plan);
+            if (out.size() >= count) continue;
+            JSONArray meters = plan.optJSONArray("meters");
+            if (collapsed && (meters == null || meters.length() == 0)) continue;
+            JSONObject meter = meters == null ? null : meters.optJSONObject(0);
+            if (meter != null && !"blocked".equals(plan.optString("level"))) meter = null;
+            JSONObject r = meter == null ? plan : meter;
             RemoteViews row = new RemoteViews(context.getPackageName(), R.layout.widget_row);
-            row.setTextViewText(R.id.row_name, r.optInt("rank", i + 1) + ". " + r.optString("name")
-                + " · " + r.optString("window"));
-            String level = r.optString("level");
-            row.setTextViewText(R.id.row_verdict, r.optString("verdict"));
+            int logo = serviceLogo(plan);
+            if (logo != 0) {
+                row.setImageViewResource(R.id.row_logo, logo);
+                row.setViewVisibility(R.id.row_logo, View.VISIBLE);
+            }
+            boolean modern = plan.has("exhausted_windows");
+            String name = (modern ? "" : plan.optInt("rank", i + 1) + ". ") + plan.optString("name");
+            row.setTextViewText(R.id.row_name, name + " · " + r.optString("window"));
+            String level = meter == null ? plan.optString("level") : "on_pace";
+            row.setTextViewText(R.id.row_verdict, modern && !plan.optBoolean("free") && !r.isNull("elapsed_percent")
+                ? times(r.optDouble("need", 0)) : plan.optString("verdict"));
             row.setTextColor(R.id.row_verdict, levelColor(level));
             int used = (int) Math.round(r.optDouble("used_percent", 0));
             int elapsed = (int) Math.round(r.optDouble("elapsed_percent", 0));
@@ -596,9 +611,9 @@ public class UsageWidget extends AppWidgetProvider {
             } else {
                 detail.append("used ").append(used).append('%');
                 if (hasElapsed) {
-                    detail.append(" · period ").append(elapsed).append('%');
+                    detail.append(modern ? " · " : " · period ").append(elapsed).append(modern ? "% elapsed" : "%");
                 }
-                if (!r.optBoolean("free", false) && r.has("need")) {
+                if (!modern && !r.optBoolean("free", false) && r.has("need")) {
                     detail.append(" · ").append(times(r.optDouble("need", 0)));
                 }
                 if (!r.isNull("resets_epoch")) {
@@ -614,7 +629,45 @@ public class UsageWidget extends AppWidgetProvider {
             }
             out.add(row);
         }
+        if (!exhausted.isEmpty() && count > 0) {
+            // Reserve a slot on height-fitted widgets; scrolling widgets keep their active rows.
+            if (!fillIn && out.size() >= count) out.remove(out.size() - 1);
+            StringBuilder lines = new StringBuilder();
+            for (JSONObject plan : exhausted) {
+                if (lines.length() > 0) lines.append('\n');
+                lines.append(plan.optString("name"));
+                JSONArray windows = plan.optJSONArray("exhausted_windows");
+                for (int j = 0; j < windows.length(); j++) {
+                    JSONObject window = windows.optJSONObject(j);
+                    if (window == null) continue;
+                    lines.append(" · ").append(window.optString("label"));
+                    long reset = window.optLong("resets_epoch", 0);
+                    if (reset > 0) lines.append(" in ").append(duration(reset - now));
+                }
+            }
+            RemoteViews group = new RemoteViews(context.getPackageName(), R.layout.widget_used_up);
+            group.setTextViewText(R.id.row_name, "Used up");
+            group.setTextColor(R.id.row_name, levelColor("blocked"));
+            group.setInt(R.id.row_detail, "setMaxLines", fillIn ? Integer.MAX_VALUE : 1);
+            group.setTextViewText(R.id.row_detail, lines.toString());
+            if (fillIn) group.setOnClickFillInIntent(R.id.row_root, openPageFillIn());
+            out.add(group);
+        }
         return out;
+    }
+
+
+    static int serviceLogo(JSONObject plan) {
+        String key = (plan.optString("provider") + " " + plan.optString("name")).toLowerCase(Locale.ROOT);
+        if (key.contains("antigravity")) return R.drawable.service_antigravity;
+        if (key.contains("gemini") || key.contains("argon")) return R.drawable.service_gemini;
+        if (key.contains("codex") || key.contains("chatgpt")) return R.drawable.service_codex;
+        if (key.contains("openai")) return R.drawable.service_openai;
+        if (key.contains("claude") || key.contains("anthropic")) return R.drawable.service_claude;
+        if (key.contains("xiaomi") || key.contains("mimo")) return R.drawable.service_mimo;
+        if (key.contains("openrouter")) return R.drawable.service_openrouter;
+        if (key.contains("opencode")) return R.drawable.service_opencode;
+        return 0;
     }
 
     static String times(double need) {

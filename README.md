@@ -261,3 +261,14 @@ Token Pace is not affiliated with OpenAI, Anthropic, OpenRouter or any other pro
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+### Reading the meters
+
+Each service displays its quota windows together on the dashboard. The blue fill
+is quota used, the tick is the period elapsed, and the multiplier is the pace
+needed from now until reset. A **Used up** list shows each exhausted service
+beside its window countdowns. The desktop and Android widgets consume the same
+meters and continue to accept feeds from older servers.
+
+Service marks are bundled from [Lobe Icons](https://github.com/lobehub/lobe-icons)
+(`@lobehub/icons-static-png` 2.10.0) and retain their respective brand ownership.

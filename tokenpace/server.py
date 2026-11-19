@@ -286,11 +286,26 @@ class App:
         if self.cfg.apk.get("version_code") and self.apk_file():
             out["apk"] = {"version_code": int(self.cfg.apk["version_code"]),
                           "version": str(self.cfg.apk.get("version") or ""), "url": "android/tokenpace.apk"}
+        providers = {sub["id"]: sub["provider"] for sub in view["subscriptions"]}
         for g in view["groups"]:
             items = []
             for r in view["advice"]["groups"].get(g["id"], []):
                 reset = parse_time(r["period"]["resets_at"])
                 items.append({
+                    "provider": providers.get(r['id'], ''),
+                    "meters": [
+                        {
+                            "window": p["label"], "used_percent": p["used_percent"],
+                            "elapsed_percent": p["elapsed_percent"], "need": p["need"],
+                            "resets_epoch": int(parse_time(p["resets_at"])),
+                        }
+                        for p in [r["period"], *r["short_windows"]]
+                        if p not in r["exhausted_windows"] and not r.get("unmetered")
+                    ],
+                    "exhausted_windows": [
+                        {"label": p["label"], "resets_epoch": int(parse_time(p["resets_at"]))}
+                        for p in r["exhausted_windows"]
+                    ],
                     "rank": r["rank"], "name": r["name"], "window": r["period"]["label"], "level": r["level"],
                     "verdict": r["verdict"], "used_percent": r["period"]["used_percent"],
                     "elapsed_percent": r["period"]["elapsed_percent"], "need": r["need"], "free": r["free"],

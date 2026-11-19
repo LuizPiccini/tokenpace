@@ -79,6 +79,7 @@ class PaceTest(unittest.TestCase):
         row = build_advice([s], ["personal"], now)["groups"]["personal"][0]
         self.assertEqual(row["level"], "blocked")
         self.assertEqual(row["released_at"], s["windows"][0]["resets_at"])   # the week, not the 5 hours
+        self.assertEqual({w["kind"] for w in row["exhausted_windows"]}, {"weekly", "five_hour"})
 
     def test_model_window_does_not_block_subscription(self):
         now = time.time()
@@ -87,6 +88,7 @@ class PaceTest(unittest.TestCase):
         row = build_advice([s], ["personal"], now)["groups"]["personal"][0]
         self.assertEqual(row["level"], "use")
         self.assertIn("Opus used up", row["reason"])
+        self.assertEqual([w["kind"] for w in row["exhausted_windows"]], ["weekly_opus"])
 
     def test_nearly_used_up_is_not_blocked(self):
         now = time.time()

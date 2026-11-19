@@ -260,6 +260,7 @@ def build_advice(subscriptions: list[dict[str, Any]], group_ids: list[str], now:
             "gap_pp": period["gap_pp"],
             "period": period,
             "short_windows": [p for p in paces if p is not period],
+            "exhausted_windows": exhausted,
             "released_at": max((p["resets_at"] for p in blocking), default=None),
             "reason": reason,
             "caveat": sub.get("caveat") or ("Reset since the last reading; usage assumed near zero until the next one"
