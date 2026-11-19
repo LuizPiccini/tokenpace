@@ -469,7 +469,7 @@ public class UsageWidget extends AppWidgetProvider {
     /** Android 12+: every group's header and rows in a scrollable list. */
     static void fillList(Context context, RemoteViews v, JSONArray groups, long now) {
         RemoteViews.RemoteCollectionItems.Builder items = new RemoteViews.RemoteCollectionItems.Builder()
-            .setViewTypeCount(2);
+            .setViewTypeCount(3);   // section, row and the Used up list
         long id = 1;
         for (int i = 0; i < groups.length(); i++) {
             JSONObject g = groups.optJSONObject(i);

@@ -68,13 +68,38 @@ public class UsageWidgetTest {
     }
 
     static String fixture() {
+        return times(FIXTURE_TEMPLATE);
+    }
+
+    static String times(String template) {
         long now = System.currentTimeMillis() / 1000L;
-        return FIXTURE_TEMPLATE
+        return template
             .replace("\"__R1__\"", String.valueOf(now + 41 * 3600 + 120))
             .replace("\"__R2__\"", String.valueOf(now + 17 * 86400 + 120))
             .replace("\"__R3__\"", String.valueOf(now + 21 * 3600 + 120))
             .replace("\"__R4__\"", String.valueOf(now + 3 * 86400 + 120))
             .replace("\"__REL__\"", String.valueOf(now + 2 * 3600 + 10 * 60 + 30));
+    }
+
+    static String withUsedUp(String template) {
+        String blocked = "\"released_epoch\":\"__REL__\"";
+        return template.replace(blocked, blocked
+            + ",\"exhausted_windows\":[{\"label\":\"Week\",\"resets_epoch\":\"__REL__\"}],\"meters\":[]");
+    }
+
+    @Test
+    public void usedUpLimitsRenderAsOneListRow() {
+        store(times(withUsedUp(FIXTURE_TEMPLATE)));
+        Items list = items(render(null, false, 0));
+        int found = 0;
+        for (int i = 0; i < list.count(); i++) {
+            TextView name = list.get(i).findViewById(R.id.row_name);
+            if (name != null && "Used up".contentEquals(name.getText())) {
+                assertTrue(text(list.get(i), R.id.row_detail).startsWith("ChatGPT · Week in 2h1"));
+                found++;
+            }
+        }
+        assertEquals(1, found);
     }
 
     void server(String url) {

@@ -864,7 +864,13 @@ GROUP_SIZE = 12.0
 ROW_H = 6 + 15 * LH + 2 + 12 + 1 + SECONDARY_SIZE * LH + 4
 
 
+SERVICE_H = 4 + 15 * LH
+METER_H = 3 + 13 * LH + 2 + 6 + 4 + SECONDARY_SIZE * LH + 3
+
+
 def group_rows(group: dict) -> list[tuple[str, dict | None, float]]:
+    """Each service with its active windows beneath it, then one Used up list. Feeds from
+    servers without per-window meters keep one ranked row per service."""
     active, exhausted = [], []
     for plan in group["items"]:
         windows = plan.get("exhausted") or []
@@ -873,14 +879,11 @@ def group_rows(group: dict) -> list[tuple[str, dict | None, float]]:
         if windows:
             exhausted.append({**plan, "exhausted": windows})
         meters = plan.get("meters")
-        if meters is not None and plan.get("level") == "blocked":
-            active.extend(("plan", {**plan, **window, "level": "on_pace", "released": None,
-                                    "verdict": ""}, ROW_H) for window in meters)
-        elif plan.get("level") != "blocked":
+        if meters:
+            active.append(("service", plan, SERVICE_H))
+            active.extend(("meter", {**plan, **meter}, METER_H) for meter in meters)
+        elif not windows and plan.get("level") != "blocked":
             active.append(("plan", plan, ROW_H))
-            if meters:
-                active.extend(("plan", {**plan, **window, "level": "on_pace", "verdict": ""},
-                               ROW_H) for window in meters[1:])
     if exhausted:
         compact = SECONDARY_SIZE * LH + 5
         active.append(("used", None, compact))
@@ -1039,6 +1042,10 @@ class View:
                     if yy + height >= list_y and yy <= list_y + view_h:
                         if kind == "plan":
                             self.draw_row(c, plan, ix, yy, iw)
+                        elif kind == "service":
+                            self.draw_service(c, plan, ix, yy, iw)
+                        elif kind == "meter":
+                            self.draw_meter(c, plan, ix, yy, iw)
                         elif kind == "used":
                             c.runs([("Used up", Canvas.SEMIBOLD, SECONDARY_SIZE, level_ink("blocked"))],
                                    ix, yy, SECONDARY_SIZE * LH, iw)
@@ -1067,6 +1074,37 @@ class View:
             c.runs([(label, Canvas.SEMIBOLD, SECONDARY_SIZE, C["link"])], right - w, fy, SECONDARY_SIZE * LH, w + 2)
             self.hits.append((right - w - 4, fy - 2, w + 8, SECONDARY_SIZE * LH + 4, action, "hand"))
             right -= w + 14
+
+    def draw_service(self, c: Canvas, p: dict, x: float, y: float, w: float) -> None:
+        y += 4
+        mark = service_mark(p)
+        dx = 20 if mark and c.service_logo(mark, x, y + 2, 15) else 0
+        amount = p["window"].partition(" · ")[2]   # credit grants: "$14.10/$100 used"
+        runs = [(p["name"], Canvas.SEMIBOLD, 13.5, C["ink"])]
+        if amount:
+            runs.append(("  " + amount, Canvas.REGULAR, SECONDARY_SIZE, C["muted"]))
+        c.runs(runs, x + dx, y, 15 * LH, w - dx)
+
+    def draw_meter(self, c: Canvas, m: dict, x: float, y: float, w: float) -> None:
+        """One window under its service: label and needed pace, the bar, then the numbers."""
+        x, w = x + 20, w - 20
+        y += 3
+        if m["free"]:
+            pace, level = "free", "free"
+        else:
+            pace = "99×+" if m["need"] >= 99 else f"{m['need']:.1f}×"
+            level = "use" if m["need"] >= 1.15 else "save" if m["need"] < 0.85 else "on_pace"
+        pw = c.measure(pace, Canvas.BOLD, 13.5)
+        c.runs([(pace, Canvas.BOLD, 13.5, level_ink(level))], x + w - pw - 1, y, 13 * LH, pw + 2)
+        c.runs([(m["window"], Canvas.REGULAR, SECONDARY_SIZE, C["soft"])], x, y, 13 * LH, w - pw - 8)
+        y += 13 * LH + 2
+        c.pace_bar(x, y, w, 6, m["used"], m["elapsed"])
+        y += 6 + 4
+        detail = f"{round(m['used'])}% used"
+        if m["elapsed"] is not None:
+            detail += f" · {round(m['elapsed'])}% elapsed"
+        detail += " · " + ("resets in " + duration(m["resets"] - time.time()) if m["resets"] else "no active reset")
+        c.runs([(detail, Canvas.REGULAR, SECONDARY_SIZE, C["muted"])], x, y, SECONDARY_SIZE * LH, w)
 
     def draw_row(self, c: Canvas, p: dict, x: float, y: float, w: float) -> float:
         y += 6

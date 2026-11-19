@@ -174,6 +174,27 @@ class ParseTest(unittest.TestCase):
             with self.assertRaises(mini.MiniError):
                 mini.parse(bad)
 
+    def test_windows_stay_under_their_service(self):
+        body = {"groups": [{"id": "personal", "label": "Personal", "items": [
+            {"name": "Claude", "provider": "claude_code", "window": "Week", "level": "blocked",
+             "used_percent": 60, "elapsed_percent": 70, "need": 1.3, "resets_epoch": 2000,
+             "exhausted_windows": [{"label": "5 hours", "resets_epoch": 1500}],
+             "meters": [{"window": "Week", "used_percent": 60, "elapsed_percent": 70, "need": 1.3,
+                         "resets_epoch": 2000}]},
+            {"name": "Codex", "provider": "codex", "window": "Week", "level": "use",
+             "used_percent": 40, "elapsed_percent": 60, "need": 1.5, "resets_epoch": 2000,
+             "exhausted_windows": [],
+             "meters": [{"window": "Week", "used_percent": 40, "elapsed_percent": 60, "need": 1.5,
+                         "resets_epoch": 2000},
+                        {"window": "5 hours", "used_percent": 10, "elapsed_percent": 20, "need": 1.1,
+                         "resets_epoch": 1200}]}]}]}
+        rows = mini.group_rows(mini.parse(json.dumps(body))[0])
+        self.assertEqual([(kind, row["name"] if row else None) for kind, row, _ in rows],
+                         [("service", "Claude"), ("meter", "Claude"), ("service", "Codex"),
+                          ("meter", "Codex"), ("meter", "Codex"), ("used", None), ("reset", "Claude")])
+        self.assertEqual(rows[4][1]["window"], "5 hours")
+        self.assertEqual(rows[6][1]["exhausted"], [("5 hours", 1500)])
+
     def test_focus_group(self):
         listed = mini.parse(json.dumps({"groups": [
             {"id": "personal", "label": "Personal", "items": [row(name="Claude")]},
